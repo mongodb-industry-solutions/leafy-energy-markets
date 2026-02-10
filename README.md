@@ -68,21 +68,21 @@ An energy trading intelligence platform built on MongoDB, demonstrating Event So
 
 The platform's Event Sourcing architecture is purpose-built for European energy market compliance, where replaying event history is a regulatory requirement. Each scenario demonstrates how `fold()` replay resolves a real-world dispute or investigation.
 
-| Scenario | Regulation | Key Events | Description |
-|----------|-----------|------------|-------------|
-| [Imbalance Settlement Audit](docs/scenarios/01-imbalance-settlement-audit.md) | Electricity Balancing (EU) 2017/2195 | `TradeExecuted`, `MeterReadingRecorded`, `PriceTickRecorded` | TSO/BRP dispute over a 15-min ISP shortfall, resolved by replaying corrected meter data |
-| [REMIT Trade Surveillance](docs/scenarios/02-remit-trade-surveillance.md) | REMIT (EU) 1227/2011 | `TradeExecuted`, `PriceTickRecorded`, `InstrumentListed` | ACER spoofing investigation — immutable trail of rapid orders, cancellations, and price impact |
-| [Flexibility Market Clearing](docs/scenarios/03-flexibility-market-clearing.md) | Electricity Directive 2019/944 | `FlexibilityBidSubmitted`, `FlexibilityActivated`, `FlexibilityDeliveryVerified` | DSO/aggregator delivery dispute resolved by comparing two baseline methodologies |
-| [Cross-Border Capacity Allocation](docs/scenarios/04-cross-border-capacity-allocation.md) | CACM (EU) 2015/1222 | `CapacityAllocationRequested`, `CrossBorderFlowRecorded`, `CongestionRevenueDistributed` | Curtailment audit of flow-based parameters, Euphemia results, and congestion revenue |
+| Scenario                                                                                  | Regulation                           | Key Events                                                                               | Description                                                                                    |
+| ----------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [Imbalance Settlement Audit](docs/scenarios/01-imbalance-settlement-audit.md)             | Electricity Balancing (EU) 2017/2195 | `TradeExecuted`, `MeterReadingRecorded`, `PriceTickRecorded`                             | TSO/BRP dispute over a 15-min ISP shortfall, resolved by replaying corrected meter data        |
+| [REMIT Trade Surveillance](docs/scenarios/02-remit-trade-surveillance.md)                 | REMIT (EU) 1227/2011                 | `TradeExecuted`, `PriceTickRecorded`, `InstrumentListed`                                 | ACER spoofing investigation — immutable trail of rapid orders, cancellations, and price impact |
+| [Flexibility Market Clearing](docs/scenarios/03-flexibility-market-clearing.md)           | Electricity Directive 2019/944       | `FlexibilityBidSubmitted`, `FlexibilityActivated`, `FlexibilityDeliveryVerified`         | DSO/aggregator delivery dispute resolved by comparing two baseline methodologies               |
+| [Cross-Border Capacity Allocation](docs/scenarios/04-cross-border-capacity-allocation.md) | CACM (EU) 2015/1222                  | `CapacityAllocationRequested`, `CrossBorderFlowRecorded`, `CongestionRevenueDistributed` | Curtailment audit of flow-based parameters, Euphemia results, and congestion revenue           |
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
+| Layer    | Technology                                                 |
+| -------- | ---------------------------------------------------------- |
 | Frontend | Next.js 14, React 18, LeafyGreen UI, Emotion CSS, Recharts |
-| Backend | Python, FastAPI, Pydantic |
-| Database | MongoDB (Event Store, Change Streams, Projections) |
-| Patterns | Domain-Driven Design, Event Sourcing, CQRS |
+| Backend  | Python, FastAPI, Pydantic                                  |
+| Database | MongoDB (Event Store, Change Streams, Projections)         |
+| Patterns | Domain-Driven Design, Event Sourcing, CQRS                 |
 
 ## Prerequisites
 
@@ -92,24 +92,48 @@ The platform's Event Sourcing architecture is purpose-built for European energy 
 
 ## Quick Start
 
-### 1. Clone and configure
+### Option 1: One-Command Demo (Recommended) 🚀
+
+The easiest way to run the demo locally:
+
+```bash
+./start-demo.sh
+```
+
+This will:
+- ✅ Automatically activate the Python 3.12 virtual environment
+- ✅ Install dependencies if needed
+- ✅ Start both backend and frontend servers
+- ✅ Show you the URLs to access the demo
+
+**Alternative scripts:**
+- `./start-backend.sh` - Start backend only (port 8000)
+- `./start-frontend.sh` - Start frontend only (port 3000)
+
+### Option 2: Manual Setup
+
+#### 1. Clone and configure
 
 ```bash
 git clone <repo-url> && cd leafy-energy-markets
-cp deploy/env.example deploy/.env
+cp deploy/env.example .env
 ```
 
-Edit `deploy/.env` and set your `MONGO_URI` (the other keys are optional for the demo).
+Edit `.env` and set your `MONGO_URI` (the other keys are optional for the demo).
 
-### 2. Start the backend
+#### 2. Start the backend
 
 ```bash
+# Create virtual environment with Python 3.12
+python3.12 -m venv venv
+source venv/bin/activate
+
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 3. Start the frontend
+#### 3. Start the frontend
 
 ```bash
 cd frontend

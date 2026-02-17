@@ -21,6 +21,8 @@ import {
 } from 'recharts';
 import { useDarkMode } from '@/components/Providers';
 import MetricCard from '@/components/shared/MetricCard';
+import ScenarioExplanationBubble from '@/components/scenarios/ScenarioExplanationBubble';
+import { SCENARIO_EXPLANATIONS } from '@/lib/scenario-explanations';
 import type { ScenarioComparison as ComparisonType } from '@/lib/types';
 
 interface ScenarioComparisonProps {
@@ -66,6 +68,12 @@ export default function ScenarioComparison({ comparison }: ScenarioComparisonPro
           deltaType="positive"
         />
       </div>
+
+      {/* Summary explanation */}
+      <ScenarioExplanationBubble
+        what={SCENARIO_EXPLANATIONS.summary.what}
+        impact={SCENARIO_EXPLANATIONS.summary.impact}
+      />
 
       {/* Chart tabs */}
       <Card darkMode={darkMode} className={css`padding: 24px;`}>
@@ -119,6 +127,19 @@ export default function ScenarioComparison({ comparison }: ScenarioComparisonPro
           </Tab>
         </Tabs>
       </Card>
+
+      {/* Chart explanation — depends on selected tab */}
+      {selectedTab === 0 ? (
+        <ScenarioExplanationBubble
+          what={SCENARIO_EXPLANATIONS.comparison.what}
+          impact={SCENARIO_EXPLANATIONS.comparison.impact}
+        />
+      ) : (
+        <ScenarioExplanationBubble
+          what={SCENARIO_EXPLANATIONS.savings.what}
+          impact={SCENARIO_EXPLANATIONS.savings.impact}
+        />
+      )}
     </div>
   );
 }

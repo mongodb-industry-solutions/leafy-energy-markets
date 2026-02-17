@@ -11,10 +11,11 @@ interface SourceCitationProps {
   source: SourceRef;
 }
 
-const typeBadgeVariant: Record<string, 'blue' | 'green' | 'yellow'> = {
+const typeBadgeVariant: Record<string, 'blue' | 'green' | 'yellow' | 'red'> = {
   Research: 'blue',
   ESG: 'green',
   Asset: 'yellow',
+  Maritime: 'red',
 };
 
 export default function SourceCitation({ source }: SourceCitationProps) {

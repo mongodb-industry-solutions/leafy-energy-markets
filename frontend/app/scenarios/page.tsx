@@ -1,23 +1,25 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { css } from '@emotion/css';
 import Button from '@leafygreen-ui/button';
 import Icon from '@leafygreen-ui/icon';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '@/components/Providers';
+import { useLiveFeed } from '@/lib/live-feed-context';
 import PageHeader from '@/components/shared/PageHeader';
 import ScenarioForm from '@/components/scenarios/ScenarioForm';
 import ScenarioList from '@/components/scenarios/ScenarioList';
 import ScenarioComparison from '@/components/scenarios/ScenarioComparison';
 import { runDemoFlow, type DemoState, initialDemoState } from '@/lib/demo-flow';
 import { scenarioComparison, mockScenarios } from '@/lib/mock-data';
-import type { TariffScenario } from '@/lib/types';
+import type { TariffScenario, ScenarioComparison as ComparisonType } from '@/lib/types';
 
 export default function ScenariosPage() {
   const { darkMode } = useDarkMode();
   const router = useRouter();
+  const liveFeed = useLiveFeed();
   const [scenarios, setScenarios] = useState<TariffScenario[]>(mockScenarios);
   const [demoState, setDemoState] = useState<DemoState>(initialDemoState);
   const [showComparison, setShowComparison] = useState(false);
@@ -43,29 +45,88 @@ export default function ScenariosPage() {
     setShowComparison(true);
   }, []);
 
+  // Overlay live pricing onto the comparison when live feed is active
+  const activeComparison: ComparisonType | null = useMemo(() => {
+    if (liveFeed.active && liveFeed.scenarioComparison && showComparison && demoState.comparison) {
+      const liveData = liveFeed.scenarioComparison;
+      return {
+        baseline: {
+          ...demoState.comparison.baseline,
+          totalCost: liveData.baselineCost,
+          hourlyPnl: liveData.hourlyPnl,
+        },
+        dynamic: {
+          ...demoState.comparison.dynamic,
+          totalCost: liveData.dynamicCost,
+          hourlyPnl: liveData.hourlyPnl,
+        },
+        savingsPercent: liveData.savingsPercent,
+        savingsAbsolute: liveData.savingsAbsolute,
+      };
+    }
+    return demoState.comparison;
+  }, [liveFeed.active, liveFeed.scenarioComparison, showComparison, demoState.comparison]);
+
+  const liveBadge = liveFeed.active ? (
+    <span
+      className={css`
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        background: ${palette.red.base};
+        color: ${palette.white};
+        margin-right: 12px;
+        animation: pulse 1.5s ease-in-out infinite;
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+      `}
+    >
+      <span
+        className={css`
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: ${palette.white};
+        `}
+      />
+      Live
+    </span>
+  ) : null;
+
   return (
     <div>
       <PageHeader
         title="Scenario Builder"
         subtitle="Create and compare tariff scenarios to optimize energy procurement costs"
         action={
-          <Button
-            variant="primary"
-            darkMode={darkMode}
-            disabled={demoState.isRunning}
-            onClick={handleRunDemo}
-            leftGlyph={<Icon glyph="Sparkle" />}
-          >
-            {demoState.isRunning ? 'Running Demo...' : 'Run Demo Scenario'}
-          </Button>
+          <div className={css`display: flex; align-items: center;`}>
+            {liveBadge}
+            <Button
+              variant="primary"
+              darkMode={darkMode}
+              disabled={demoState.isRunning}
+              onClick={handleRunDemo}
+              leftGlyph={<Icon glyph="Sparkle" />}
+            >
+              {demoState.isRunning ? 'Running Demo...' : 'Run Demo Scenario'}
+            </Button>
+          </div>
         }
       />
 
       <ScenarioForm onCreated={handleCreated} />
 
-      {showComparison && demoState.comparison && (
+      {showComparison && activeComparison && (
         <div className={css`margin-bottom: 24px;`}>
-          <ScenarioComparison comparison={demoState.comparison} />
+          <ScenarioComparison comparison={activeComparison} />
         </div>
       )}
 

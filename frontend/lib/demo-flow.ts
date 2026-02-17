@@ -30,7 +30,7 @@ export const initialDemoState: DemoState = {
  * 1. Creates a baseline scenario (flat tariff) via real API
  * 2. Creates a dynamic scenario (ToU + load shifting) via real API
  * 3. Returns mock P&L comparison showing ~12% savings
- * 4. Pre-seeds Copilot conversation explaining why
+ * 4. Pre-seeds Leafy conversation explaining why
  *
  * Falls back to mock scenario IDs if API is unavailable.
  */

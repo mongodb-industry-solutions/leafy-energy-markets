@@ -145,13 +145,15 @@ export default function ChatMessage({ message }: ChatMessageProps) {
   );
 }
 
-/** Simple markdown-to-HTML for demo (handles bold, headers, tables, lists) */
+/** Simple markdown-to-HTML for demo (handles bold, italic, headers, tables, lists) */
 function formatMarkdown(text: string): string {
   let html = text
     // Headers
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     // Bold
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Italic (single * not preceded/followed by *)
+    .replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>')
     // Tables
     .replace(/\|(.+)\|/g, (match) => {
       const cells = match.split('|').filter(Boolean).map((c) => c.trim());
@@ -159,11 +161,14 @@ function formatMarkdown(text: string): string {
       const tag = 'td';
       return '<tr>' + cells.map((c) => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
     })
-    // Wrap consecutive tr in table
-    .replace(/((<tr>.*<\/tr>\n?)+)/g, '<table>$1</table>')
+    // Wrap consecutive tr in table (allow whitespace gaps from removed separators)
+    .replace(/((<tr>.*<\/tr>\s*)+)/g, '<table>$1</table>')
+    // Ordered lists
+    .replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
     // Unordered lists
     .replace(/^- (.+)$/gm, '<li>$1</li>')
-    .replace(/((<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+    // Wrap consecutive li in list
+    .replace(/((<li>.*<\/li>\s*)+)/g, '<ul>$1</ul>')
     // Line breaks
     .replace(/\n\n/g, '<br/><br/>')
     .replace(/\n/g, '<br/>');

@@ -14,7 +14,10 @@ const navItems = [
   { label: 'Dashboard', href: '/dashboard', glyph: 'Dashboard' as const },
   { label: 'Scenarios', href: '/scenarios', glyph: 'Charts' as const },
   { label: 'Market Intelligence', href: '/search', glyph: 'MagnifyingGlass' as const },
-  { label: 'Copilot', href: '/copilot', glyph: 'Sparkle' as const },
+  { label: 'Leafy', href: '/leafy', glyph: 'Sparkle' as const },
+  { label: 'Telemetry', href: '/telemetry', glyph: 'ActivityFeed' as const },
+  { label: 'Event Inspector', href: '/audit', glyph: 'OpenNewTab' as const },
+  { label: 'CQRS', href: '/cqrs', glyph: 'CurlyBraces' as const },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -79,7 +82,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               margin-left: 34px !important;
             `}
           >
-            Copilot
+            Leafy
           </Overline>
         </div>
 

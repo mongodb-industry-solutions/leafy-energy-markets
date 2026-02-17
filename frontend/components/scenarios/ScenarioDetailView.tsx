@@ -83,21 +83,21 @@ export default function ScenarioDetailView({ scenario, comparison }: ScenarioDet
       {/* P&L breakdown */}
       <PnLBreakdown hourlyPnl={comparison.baseline.hourlyPnl} />
 
-      {/* Ask Copilot link */}
+      {/* Ask Leafy link */}
       <Banner
         variant="info"
         darkMode={darkMode}
       >
         <div className={css`display: flex; align-items: center; justify-content: space-between; width: 100%;`}>
           <span>Want to understand why the dynamic tariff saves {comparison.savingsPercent}%?</span>
-          <Link href="/copilot?demo=true">
+          <Link href="/leafy?demo=true">
             <Button
               variant="primary"
               size="small"
               darkMode={darkMode}
               rightGlyph={<Icon glyph="Sparkle" />}
             >
-              Ask Copilot Why
+              Ask Leafy Why
             </Button>
           </Link>
         </div>

@@ -3,7 +3,7 @@ import Providers from '@/components/Providers';
 import AppShell from '@/components/AppShell';
 
 export const metadata = {
-  title: 'EnergyMarket Copilot',
+  title: 'EnergyMarket Leafy',
   description: 'MongoDB-powered energy trading intelligence platform',
 };
 

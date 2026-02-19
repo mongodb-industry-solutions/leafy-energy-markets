@@ -1,8 +1,33 @@
+import os
+from contextlib import asynccontextmanager
+
+from dotenv import load_dotenv
+
+# Resolve project root (backend/app/main.py -> backend -> project root)
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+
+# Load env files: backend/.env first, then deploy/.env as fallback.
+# load_dotenv does NOT override already-set vars, so the first file wins.
+load_dotenv(os.path.join(_PROJECT_ROOT, 'backend', '.env'))
+load_dotenv(os.path.join(_PROJECT_ROOT, 'deploy', '.env'))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import commands, queries, telemetry
+from app.infrastructure.db import get_client, close_client
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: verify MongoDB is reachable
+    client = get_client()
+    client.admin.command("ping")
+    yield
+    # Shutdown: close the connection pool
+    close_client()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

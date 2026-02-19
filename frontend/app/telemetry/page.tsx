@@ -16,6 +16,7 @@ import SubstationGrid from '@/components/telemetry/SubstationGrid';
 import GeneratorOutputChart from '@/components/telemetry/GeneratorOutputChart';
 import EventFeed from '@/components/telemetry/EventFeed';
 import { startTelemetry, stopTelemetry } from '@/lib/api';
+import { positions as mockPositions, portfolioSummary as mockSummary, hourlyExposure as mockExposure } from '@/lib/mock-data';
 import type {
   TelemetryConfig,
   TelemetryMetrics,
@@ -255,6 +256,8 @@ export default function TelemetryPage() {
   const totalEventsRef = useRef<number>(0);
   const configRef = useRef(config);
   configRef.current = config;
+  const liveFeedRef = useRef(liveFeed);
+  liveFeedRef.current = liveFeed;
 
   const cleanup = useCallback(() => {
     if (eventSourceRef.current) {
@@ -316,6 +319,31 @@ export default function TelemetryPage() {
       const next = [...prev, genPoint];
       return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next;
     });
+
+    // Push simulated portfolio data to dashboard when live feed is on
+    if (liveFeedRef.current) {
+      const jitter = () => (Math.random() - 0.5) * 2;
+      const simPositions = mockPositions.map((p) => ({
+        ...p,
+        currentPrice: +(p.currentPrice + jitter()).toFixed(2),
+        unrealizedPnl: Math.round(p.unrealizedPnl + jitter() * p.quantity * 0.1),
+      }));
+      const totalPnl = simPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
+      const portfolioValue = simPositions.reduce((s, p) => s + p.currentPrice * p.quantity, 0);
+      liveFeedCtx.pushData({
+        positions: simPositions,
+        summary: {
+          ...mockSummary,
+          totalPnl,
+          portfolioValue: Math.round(portfolioValue),
+          pnlDelta: `${totalPnl >= 0 ? '+' : ''}${(totalPnl / portfolioValue * 100).toFixed(1)}%`,
+        },
+        exposure: mockExposure.map((e) => ({
+          ...e,
+          mwh: e.mwh + Math.round((Math.random() - 0.5) * 30),
+        })),
+      });
+    }
   }, []);
 
   const startRealStream = useCallback(() => {
@@ -381,14 +409,14 @@ export default function TelemetryPage() {
     liveFeedCtx.stopFeed();
   }, [cleanup, isSimulated, mode, liveFeedCtx]);
 
-  // Handle live feed toggle
+  // Handle live feed toggle — works in both simulation and backend modes
   useEffect(() => {
-    if (liveFeed && isRunning && mode === 'backend' && !isSimulated) {
+    if (liveFeed && isRunning) {
       liveFeedCtx.startFeed();
     } else {
       liveFeedCtx.stopFeed();
     }
-  }, [liveFeed, isRunning, mode, isSimulated]);
+  }, [liveFeed, isRunning]);
 
   useEffect(() => cleanup, [cleanup]);
 

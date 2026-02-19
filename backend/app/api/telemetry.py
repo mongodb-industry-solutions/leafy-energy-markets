@@ -10,7 +10,6 @@ from typing import AsyncGenerator, List, Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from pymongo import MongoClient
 from pymongo.errors import CollectionInvalid
 
 router = APIRouter()
@@ -47,14 +46,14 @@ class TelemetryLoadGenerator:
         self._latencies: deque[float] = deque(maxlen=1000)
         self._event_timestamps: deque[float] = deque(maxlen=50000)
         self._lock = asyncio.Lock()
-        self._client: Optional[MongoClient] = None
+        self._client = None
         self._collection = None
 
     def _get_collection(self):
         if self._client is None:
-            uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+            from app.infrastructure.db import get_client
             db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
-            self._client = MongoClient(uri)
+            self._client = get_client()
             db = self._client[db_name]
 
             # Create time-series collection if it doesn't exist

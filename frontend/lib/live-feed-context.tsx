@@ -24,6 +24,12 @@ export interface LiveFeedState {
 interface LiveFeedContextValue extends LiveFeedState {
   startFeed: () => void;
   stopFeed: () => void;
+  pushData: (data: {
+    positions?: Position[];
+    summary?: PortfolioSummary;
+    exposure?: HourlyExposure[];
+    scenarioComparison?: ScenarioLiveData;
+  }) => void;
 }
 
 const LiveFeedContext = createContext<LiveFeedContextValue>({
@@ -34,6 +40,7 @@ const LiveFeedContext = createContext<LiveFeedContextValue>({
   scenarioComparison: null,
   startFeed: () => {},
   stopFeed: () => {},
+  pushData: () => {},
 });
 
 export const useLiveFeed = () => useContext(LiveFeedContext);
@@ -75,7 +82,7 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
 
     setState((prev) => ({ ...prev, active: true }));
 
-    // Dashboard SSE
+    // Try backend SSE — if it fails, the feed still works via pushData()
     const dashES = new EventSource(`${BACKEND}/dashboard/stream`);
     dashboardESRef.current = dashES;
     dashES.onmessage = (event) => {
@@ -84,9 +91,9 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
         setState((prev) => ({
           ...prev,
           active: true,
-          positions: data.positions || null,
-          summary: data.summary || null,
-          exposure: data.exposure || null,
+          positions: data.positions || prev.positions,
+          summary: data.summary || prev.summary,
+          exposure: data.exposure || prev.exposure,
         }));
       } catch { /* ignore parse errors */ }
     };
@@ -95,7 +102,6 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
       dashboardESRef.current = null;
     };
 
-    // Scenario SSE
     const scenES = new EventSource(`${BACKEND}/scenarios/stream`);
     scenarioESRef.current = scenES;
     scenES.onmessage = (event) => {
@@ -113,8 +119,24 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Push data directly (used by simulation mode to feed the dashboard)
+  const pushData = useCallback((data: {
+    positions?: Position[];
+    summary?: PortfolioSummary;
+    exposure?: HourlyExposure[];
+    scenarioComparison?: ScenarioLiveData;
+  }) => {
+    setState((prev) => ({
+      ...prev,
+      positions: data.positions ?? prev.positions,
+      summary: data.summary ?? prev.summary,
+      exposure: data.exposure ?? prev.exposure,
+      scenarioComparison: data.scenarioComparison ?? prev.scenarioComparison,
+    }));
+  }, []);
+
   return (
-    <LiveFeedContext.Provider value={{ ...state, startFeed, stopFeed }}>
+    <LiveFeedContext.Provider value={{ ...state, startFeed, stopFeed, pushData }}>
       {children}
     </LiveFeedContext.Provider>
   );

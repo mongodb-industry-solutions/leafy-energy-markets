@@ -186,23 +186,11 @@ export default function ControlPanel({
             aria-label="Live Feed"
             size="small"
             checked={liveFeed}
-            disabled={mode !== 'backend' || !isRunning}
+            disabled={!isRunning}
             darkMode={darkMode}
             onChange={() => onLiveFeedChange(!liveFeed)}
           />
         </div>
-        {mode === 'simulation' && (
-          <Body
-            className={css`
-              color: ${darkMode ? palette.gray.dark1 : palette.gray.light1} !important;
-              font-size: 11px !important;
-              margin-top: 4px !important;
-              font-style: italic;
-            `}
-          >
-            Requires Backend mode
-          </Body>
-        )}
       </div>
 
       <div className={sectionDivider} />

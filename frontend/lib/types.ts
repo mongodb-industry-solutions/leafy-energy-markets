@@ -68,7 +68,7 @@ export interface ScenarioComparison {
 }
 
 // Search
-export type DocumentType = 'Research' | 'ESG' | 'Asset' | 'Maritime';
+export type DocumentType = 'Research' | 'ESG' | 'Asset' | 'Maritime' | 'Policy';
 
 // Vessel Tracking
 export type VesselStatus = 'underway' | 'at-anchor' | 'loading' | 'discharging';

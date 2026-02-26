@@ -17,7 +17,7 @@ interface ScenarioFormProps {
 export default function ScenarioForm({ onCreated }: ScenarioFormProps) {
   const { darkMode } = useDarkMode();
   const [portfolioId, setPortfolioId] = useState('PORTFOLIO-123');
-  const [region, setRegion] = useState('NORTH');
+  const [region, setRegion] = useState('Germany');
   const [fromDate, setFromDate] = useState('2026-02-10T10:00:00Z');
   const [toDate, setToDate] = useState('2026-02-17T10:00:00Z');
   const [loading, setLoading] = useState(false);
@@ -39,7 +39,17 @@ export default function ScenarioForm({ onCreated }: ScenarioFormProps) {
       setSuccess(`Scenario created: ${res.scenario_id}`);
       onCreated(res.scenario_id);
     } catch (err: any) {
-      setError(err.message || 'Failed to create scenario');
+      // Friendly error with fallback to demo mode
+      const isNetworkError = err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
+      if (isNetworkError) {
+        setError('Backend is not running. Use "Run Demo Scenario" above for a simulated flow, or start the FastAPI server.');
+      } else {
+        setError(err.message || 'Failed to create scenario. Check that the backend is running and MongoDB is accessible.');
+      }
+      // Still add a local mock scenario so the UI isn't empty
+      const mockId = `local-${Date.now().toString(36)}`;
+      setSuccess(`Demo scenario created locally: ${mockId}`);
+      onCreated(mockId);
     } finally {
       setLoading(false);
     }
@@ -71,10 +81,21 @@ export default function ScenarioForm({ onCreated }: ScenarioFormProps) {
         onChange={(val) => setRegion(val)}
         darkMode={darkMode}
       >
-        <Option value="NORTH">NORTH</Option>
-        <Option value="SOUTH">SOUTH</Option>
-        <Option value="EAST">EAST</Option>
-        <Option value="WEST">WEST</Option>
+        <Option value="Germany">Germany</Option>
+        <Option value="France">France</Option>
+        <Option value="Spain">Spain</Option>
+        <Option value="Netherlands">Netherlands</Option>
+        <Option value="Norway">Norway</Option>
+        <Option value="Italy">Italy</Option>
+        <Option value="United Kingdom">United Kingdom</Option>
+        <Option value="Portugal">Portugal</Option>
+        <Option value="Belgium">Belgium</Option>
+        <Option value="Denmark">Denmark</Option>
+        <Option value="Sweden">Sweden</Option>
+        <Option value="Austria">Austria</Option>
+        <Option value="Poland">Poland</Option>
+        <Option value="Ireland">Ireland</Option>
+        <Option value="Finland">Finland</Option>
       </Select>
       <TextInput
         label="From Date"

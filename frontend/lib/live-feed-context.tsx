@@ -3,7 +3,7 @@
 import { createContext, useContext, useRef, useState, useCallback } from 'react';
 import type { Position, PortfolioSummary, HourlyExposure } from './types';
 
-const BACKEND = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const BACKEND = '/api';
 
 export interface ScenarioLiveData {
   hourlyPnl: { hour: number; baseline: number; dynamic: number; difference: number }[];
@@ -30,6 +30,7 @@ interface LiveFeedContextValue extends LiveFeedState {
     exposure?: HourlyExposure[];
     scenarioComparison?: ScenarioLiveData;
   }) => void;
+  addPosition: (position: Position) => void;
 }
 
 const LiveFeedContext = createContext<LiveFeedContextValue>({
@@ -41,6 +42,7 @@ const LiveFeedContext = createContext<LiveFeedContextValue>({
   startFeed: () => {},
   stopFeed: () => {},
   pushData: () => {},
+  addPosition: () => {},
 });
 
 export const useLiveFeed = () => useContext(LiveFeedContext);
@@ -135,8 +137,30 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const addPosition = useCallback((position: Position) => {
+    setState((prev) => {
+      const current = prev.positions ?? [];
+      const newPositions = [...current, position];
+      const totalPnl = newPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
+      const portfolioValue = newPositions.reduce((s, p) => s + p.currentPrice * p.quantity, 0);
+      return {
+        ...prev,
+        positions: newPositions,
+        summary: prev.summary
+          ? {
+              ...prev.summary,
+              activePositions: newPositions.length,
+              totalPnl,
+              portfolioValue: Math.round(portfolioValue),
+              pnlDelta: `${totalPnl >= 0 ? '+' : ''}${(totalPnl / (portfolioValue || 1) * 100).toFixed(1)}%`,
+            }
+          : prev.summary,
+      };
+    });
+  }, []);
+
   return (
-    <LiveFeedContext.Provider value={{ ...state, startFeed, stopFeed, pushData }}>
+    <LiveFeedContext.Provider value={{ ...state, startFeed, stopFeed, pushData, addPosition }}>
       {children}
     </LiveFeedContext.Provider>
   );

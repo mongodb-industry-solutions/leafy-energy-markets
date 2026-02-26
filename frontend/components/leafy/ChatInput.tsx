@@ -11,9 +11,10 @@ import { useDarkMode } from '@/components/Providers';
 interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 }
 
-export default function ChatInput({ onSend, disabled }: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
   const { darkMode } = useDarkMode();
   const [value, setValue] = useState('');
 
@@ -38,7 +39,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
       <div className={css`flex: 1;`}>
         <TextInput
           aria-label="Chat message"
-          placeholder="Ask about your portfolio, scenarios, or market data..."
+          placeholder={placeholder || "Ask about your portfolio, scenarios, or market data..."}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           darkMode={darkMode}

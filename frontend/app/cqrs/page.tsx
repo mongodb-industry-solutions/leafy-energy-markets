@@ -525,10 +525,10 @@ function SequenceDiagram({
   borderColor: string;
 }) {
   const laneCount = SWIM_LANES.length;
-  const laneWidth = 160;
+  const laneWidth = 220;
   const totalWidth = laneCount * laneWidth;
-  const headerHeight = 48;
-  const rowHeight = 44;
+  const headerHeight = 56;
+  const rowHeight = 56;
   const diagramHeight = headerHeight + steps.length * rowHeight + 16;
 
   const laneX = (i: number) => i * laneWidth + laneWidth / 2;
@@ -551,19 +551,20 @@ function SequenceDiagram({
 
       <div className={css`overflow-x: auto; border: 1px solid ${borderColor}; border-radius: 8px; background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'};`}>
         <svg
-          width={totalWidth}
+          width="100%"
           height={diagramHeight}
           viewBox={`0 0 ${totalWidth} ${diagramHeight}`}
+          preserveAspectRatio="xMidYMid meet"
           className={css`display: block; min-width: ${totalWidth}px;`}
         >
           {/* Lane headers */}
           {SWIM_LANES.map((lane, i) => (
             <g key={lane}>
               <rect
-                x={laneX(i) - 52}
+                x={laneX(i) - 64}
                 y={8}
-                width={104}
-                height={28}
+                width={128}
+                height={34}
                 rx={6}
                 fill={darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'}
                 stroke={borderColor}
@@ -571,10 +572,10 @@ function SequenceDiagram({
               />
               <text
                 x={laneX(i)}
-                y={26}
+                y={30}
                 textAnchor="middle"
                 fill={labelColor}
-                fontSize={11}
+                fontSize={13}
                 fontWeight={600}
                 fontFamily="'Euclid Circular A', sans-serif"
               >
@@ -609,28 +610,28 @@ function SequenceDiagram({
               return (
                 <g key={idx}>
                   {/* Step number */}
-                  <circle cx={16} cy={y} r={10} fill={color} opacity={0.15} />
-                  <text x={16} y={y + 4} textAnchor="middle" fill={color} fontSize={10} fontWeight={700}>
+                  <circle cx={18} cy={y} r={12} fill={color} opacity={0.15} />
+                  <text x={18} y={y + 4} textAnchor="middle" fill={color} fontSize={12} fontWeight={700}>
                     {idx + 1}
                   </text>
                   {/* Self-loop */}
                   <path
-                    d={`M ${x} ${y - 6} L ${x + 28} ${y - 6} L ${x + 28} ${y + 6} L ${x + 5} ${y + 6}`}
+                    d={`M ${x} ${y - 8} L ${x + 32} ${y - 8} L ${x + 32} ${y + 8} L ${x + 5} ${y + 8}`}
                     fill="none"
                     stroke={color}
                     strokeWidth={1.5}
                   />
                   {/* Arrowhead */}
                   <polygon
-                    points={`${x + 5},${y + 2} ${x + 5},${y + 10} ${x - 1},${y + 6}`}
+                    points={`${x + 5},${y + 4} ${x + 5},${y + 12} ${x - 1},${y + 8}`}
                     fill={color}
                   />
                   {/* Label */}
                   <text
-                    x={x + 34}
+                    x={x + 38}
                     y={y + 1}
                     fill={mutedColor}
-                    fontSize={10}
+                    fontSize={12}
                     fontFamily="'Source Code Pro', monospace"
                   >
                     {step.label}
@@ -648,8 +649,8 @@ function SequenceDiagram({
             return (
               <g key={idx}>
                 {/* Step number */}
-                <circle cx={16} cy={y} r={10} fill={color} opacity={0.15} />
-                <text x={16} y={y + 4} textAnchor="middle" fill={color} fontSize={10} fontWeight={700}>
+                <circle cx={18} cy={y} r={12} fill={color} opacity={0.15} />
+                <text x={18} y={y + 4} textAnchor="middle" fill={color} fontSize={12} fontWeight={700}>
                   {idx + 1}
                 </text>
                 {/* Line */}
@@ -670,10 +671,10 @@ function SequenceDiagram({
                 {/* Label — centered above the arrow */}
                 <text
                   x={(x1 + x2) / 2}
-                  y={y - 8}
+                  y={y - 10}
                   textAnchor="middle"
                   fill={mutedColor}
-                  fontSize={10}
+                  fontSize={12}
                   fontFamily="'Source Code Pro', monospace"
                 >
                   {step.label}
@@ -685,6 +686,135 @@ function SequenceDiagram({
       </div>
     </div>
   );
+}
+
+// ── Syntax highlighting ──────────────────────────────────────
+
+interface HighlightToken {
+  text: string;
+  color?: string;
+}
+
+function highlightCode(code: string, lang: string, darkMode: boolean): HighlightToken[][] {
+  const colors = {
+    keyword: darkMode ? '#c792ea' : '#7c3aed',
+    string: darkMode ? '#c3e88d' : '#16a34a',
+    comment: darkMode ? '#546e7a' : '#9ca3af',
+    function: darkMode ? '#82aaff' : '#2563eb',
+    decorator: darkMode ? '#ffcb6b' : '#d97706',
+    type: darkMode ? '#f78c6c' : '#ea580c',
+    default: darkMode ? palette.gray.light2 : palette.gray.dark2,
+  };
+
+  const pyKeywords = /\b(def|class|for|if|else|elif|return|import|from|with|as|try|except|raise|not|and|or|in|is|None|True|False|self|lambda|yield|pass|break|continue)\b/;
+  const tsKeywords = /\b(function|const|let|var|for|switch|case|break|return|as|type|interface|if|else|new|this|typeof|instanceof|export|import|default|from)\b/;
+
+  return code.split('\n').map((line) => {
+    const tokens: HighlightToken[] = [];
+
+    if (lang === 'python') {
+      // Comment
+      if (line.trimStart().startsWith('#')) {
+        return [{ text: line, color: colors.comment }];
+      }
+      // Multi-line string (triple quote lines)
+      if (line.trimStart().startsWith('"""') || line.trimStart().startsWith("'''")) {
+        return [{ text: line, color: colors.string }];
+      }
+      // Decorator
+      if (line.trimStart().startsWith('@')) {
+        return [{ text: line, color: colors.decorator }];
+      }
+
+      let remaining = line;
+      while (remaining.length > 0) {
+        // String
+        const strMatch = remaining.match(/^(f?["'])(.*?)\1/);
+        if (strMatch) {
+          tokens.push({ text: strMatch[0], color: colors.string });
+          remaining = remaining.slice(strMatch[0].length);
+          continue;
+        }
+        // Keyword
+        const kwMatch = remaining.match(new RegExp(`^${pyKeywords.source}`));
+        if (kwMatch) {
+          tokens.push({ text: kwMatch[0], color: kwMatch[0] === 'self' ? colors.type : colors.keyword });
+          remaining = remaining.slice(kwMatch[0].length);
+          continue;
+        }
+        // Function name after def
+        if (tokens.length > 0 && tokens[tokens.length - 1].text === 'def') {
+          const fnMatch = remaining.match(/^(\s+)(\w+)/);
+          if (fnMatch) {
+            tokens.push({ text: fnMatch[1], color: colors.default });
+            tokens.push({ text: fnMatch[2], color: colors.function });
+            remaining = remaining.slice(fnMatch[0].length);
+            continue;
+          }
+        }
+        // Type hint after colon
+        const typeMatch = remaining.match(/^:\s*([\w\[\]|, ]+)/);
+        if (typeMatch) {
+          tokens.push({ text: ':', color: colors.default });
+          tokens.push({ text: ' ' + typeMatch[1].trim(), color: colors.type });
+          remaining = remaining.slice(typeMatch[0].length);
+          continue;
+        }
+        // Inline comment
+        const commentMatch = remaining.match(/^(\s*#.*)$/);
+        if (commentMatch) {
+          tokens.push({ text: commentMatch[0], color: colors.comment });
+          remaining = '';
+          continue;
+        }
+        // Default character
+        tokens.push({ text: remaining[0], color: colors.default });
+        remaining = remaining.slice(1);
+      }
+    } else {
+      // TypeScript
+      if (line.trimStart().startsWith('//')) {
+        return [{ text: line, color: colors.comment }];
+      }
+
+      let remaining = line;
+      while (remaining.length > 0) {
+        // String
+        const strMatch = remaining.match(/^(['"`])(.*?)\1/);
+        if (strMatch) {
+          tokens.push({ text: strMatch[0], color: colors.string });
+          remaining = remaining.slice(strMatch[0].length);
+          continue;
+        }
+        // Keyword
+        const kwMatch = remaining.match(new RegExp(`^${tsKeywords.source}`));
+        if (kwMatch) {
+          tokens.push({ text: kwMatch[0], color: colors.keyword });
+          remaining = remaining.slice(kwMatch[0].length);
+          continue;
+        }
+        // Type annotation after colon (simplified)
+        const typeMatch = remaining.match(/^:\s*([A-Z][\w<>\[\]|, ]*)/);
+        if (typeMatch) {
+          tokens.push({ text: ':', color: colors.default });
+          tokens.push({ text: ' ' + typeMatch[1], color: colors.type });
+          remaining = remaining.slice(typeMatch[0].length);
+          continue;
+        }
+        // Inline comment
+        const commentMatch = remaining.match(/^(\/\/.*)$/);
+        if (commentMatch) {
+          tokens.push({ text: commentMatch[0], color: colors.comment });
+          remaining = '';
+          continue;
+        }
+        tokens.push({ text: remaining[0], color: colors.default });
+        remaining = remaining.slice(1);
+      }
+    }
+
+    return tokens.length > 0 ? tokens : [{ text: line, color: colors.default }];
+  });
 }
 
 // ── Reusable code block component ────────────────────────────
@@ -707,6 +837,8 @@ function CodeBlock({
   const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const codeBg = darkMode ? '#0d1117' : '#f6f8fa';
   const codeColor = darkMode ? palette.gray.light2 : palette.gray.dark2;
+
+  const highlighted = highlightCode(code, lang, darkMode);
 
   return (
     <div
@@ -745,7 +877,14 @@ function CodeBlock({
           white-space: pre;
         `}
       >
-        {code}
+        {highlighted.map((lineTokens, lineIdx) => (
+          <span key={lineIdx}>
+            {lineTokens.map((token, tokenIdx) => (
+              <span key={tokenIdx} style={{ color: token.color }}>{token.text}</span>
+            ))}
+            {lineIdx < highlighted.length - 1 ? '\n' : ''}
+          </span>
+        ))}
       </pre>
     </div>
   );

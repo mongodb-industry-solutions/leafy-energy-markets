@@ -3,4 +3,9 @@ uvicorn
 pymongo
 pydantic
 python-dotenv
+httpx
 pytest
+langchain
+langchain-anthropic
+langchain-core
+langgraph

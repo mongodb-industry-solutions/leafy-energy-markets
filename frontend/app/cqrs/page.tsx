@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { css, keyframes } from '@emotion/css';
+import { css } from '@emotion/css';
 import Card from '@leafygreen-ui/card';
 import Badge from '@leafygreen-ui/badge';
 import Icon from '@leafygreen-ui/icon';
@@ -11,20 +11,6 @@ import { useDarkMode } from '@/components/Providers';
 import PageHeader from '@/components/shared/PageHeader';
 
 // ── Architecture diagram data ────────────────────────────────
-
-const WRITE_SIDE_STEPS = [
-  { label: 'API Command', desc: 'POST /api/portfolios/{id}/tariff-scenarios', color: palette.blue.base },
-  { label: 'Domain Aggregate', desc: 'TariffScenario.record(event)', color: palette.blue.base },
-  { label: 'Event Store', desc: 'events_collection.insert_one(event_doc)', color: palette.blue.base },
-  { label: 'MongoDB Events', desc: '{ streamId, version, eventType, payload, metadata }', color: palette.green.base },
-];
-
-const READ_SIDE_STEPS = [
-  { label: 'API Query', desc: 'GET /api/events/stream/{id}/replay', color: palette.yellow.dark2 },
-  { label: 'Event Store', desc: 'events_collection.find({streamId}).sort("version")', color: palette.yellow.dark2 },
-  { label: 'fold()', desc: 'Replay events onto empty aggregate', color: palette.yellow.dark2 },
-  { label: 'Current State', desc: 'Aggregate state reconstructed at any version', color: palette.green.base },
-];
 
 const REGULATIONS = [
   {
@@ -53,32 +39,30 @@ const REGULATIONS = [
   },
 ];
 
-// ── Animated flow arrow ──────────────────────────────────────
+// ── Sequence diagram data ─────────────────────────────────────
 
-const flow = keyframes`
-  0% { stroke-dashoffset: 12; }
-  100% { stroke-dashoffset: 0; }
-`;
+const SWIM_LANES = ['Client', 'API Layer', 'Domain', 'Event Store', 'MongoDB'] as const;
 
-function FlowArrow({ darkMode }: { darkMode: boolean }) {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" className={css`flex-shrink: 0;`}>
-      <line
-        x1="4" y1="12" x2="20" y2="12"
-        stroke={darkMode ? palette.gray.light1 : palette.gray.dark1}
-        strokeWidth="2"
-        strokeDasharray="4,4"
-        className={css`animation: ${flow} 0.6s linear infinite;`}
-      />
-      <polyline
-        points="16,8 20,12 16,16"
-        stroke={darkMode ? palette.gray.light1 : palette.gray.dark1}
-        strokeWidth="2"
-        fill="none"
-      />
-    </svg>
-  );
-}
+const WRITE_SEQUENCE = [
+  { from: 0, to: 1, label: 'POST /portfolios/{id}/tariff-scenarios', style: 'request' as const },
+  { from: 1, to: 2, label: 'CreateTariffScenario(command)', style: 'request' as const },
+  { from: 2, to: 2, label: 'scenario.record(event)', style: 'self' as const },
+  { from: 2, to: 3, label: 'event_store.save(scenario, events)', style: 'request' as const },
+  { from: 3, to: 4, label: 'insert_one(event_doc, session)', style: 'request' as const },
+  { from: 4, to: 3, label: 'ack (with version uniqueness check)', style: 'response' as const },
+  { from: 3, to: 1, label: '{ scenario_id }', style: 'response' as const },
+  { from: 1, to: 0, label: '201 Created', style: 'response' as const },
+];
+
+const READ_SEQUENCE = [
+  { from: 0, to: 1, label: 'GET /events/stream/{id}/replay', style: 'request' as const },
+  { from: 1, to: 3, label: 'store.replay_stream(stream_id)', style: 'request' as const },
+  { from: 3, to: 4, label: 'find({streamId}).sort("version")', style: 'request' as const },
+  { from: 4, to: 3, label: '[event_doc, event_doc, ...]', style: 'response' as const },
+  { from: 3, to: 3, label: 'fold(aggregate, events)', style: 'self' as const },
+  { from: 3, to: 1, label: '{ steps: [state@v1, state@v2, ...] }', style: 'response' as const },
+  { from: 1, to: 0, label: '200 OK — full replay history', style: 'response' as const },
+];
 
 // ── Code blocks ──────────────────────────────────────────────
 
@@ -268,92 +252,40 @@ export default function CQRSPage() {
         </div>
       </Card>
 
-      {/* ── CQRS Flow Diagram ─────────────────────────────── */}
-      <Card darkMode={darkMode} className={css`padding: 24px;`}>
-        <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 16px !important;`}>
-          CQRS Data Flow
+      {/* ── CQRS Sequence Diagram ─────────────────────────── */}
+      <Card darkMode={darkMode} className={css`padding: 24px; overflow-x: auto;`}>
+        <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 4px !important;`}>
+          CQRS Data Flow — Sequence Diagram
         </Subtitle>
+        <Body className={css`color: ${mutedColor} !important; font-size: 13px !important; margin-bottom: 20px !important;`}>
+          Follow the numbered steps to see how commands (writes) and queries (reads) travel through the system.
+        </Body>
 
-        <div className={css`display: flex; gap: 24px; @media (max-width: 900px) { flex-direction: column; }`}>
-          {/* Write Side */}
-          <div className={css`flex: 1;`}>
-            <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 12px;`}>
-              <Badge variant="blue">Write Side (Commands)</Badge>
-              <Body className={css`color: ${mutedColor} !important; font-size: 12px !important;`}>commands.py</Body>
-            </div>
-            <div className={css`display: flex; flex-direction: column; gap: 8px;`}>
-              {WRITE_SIDE_STEPS.map((step, i) => (
-                <div key={i}>
-                  <div
-                    className={css`
-                      display: flex;
-                      align-items: center;
-                      gap: 8px;
-                      padding: 10px 14px;
-                      border-radius: 6px;
-                      border: 1px solid ${borderColor};
-                      background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'};
-                    `}
-                  >
-                    <div className={css`width: 8px; height: 8px; border-radius: 50%; background: ${step.color}; flex-shrink: 0;`} />
-                    <div>
-                      <div className={css`font-size: 13px; font-weight: 600; color: ${labelColor};`}>{step.label}</div>
-                      <div className={css`font-size: 11px; color: ${mutedColor}; font-family: 'Source Code Pro', monospace;`}>{step.desc}</div>
-                    </div>
-                  </div>
-                  {i < WRITE_SIDE_STEPS.length - 1 && (
-                    <div className={css`display: flex; justify-content: center; padding: 2px 0;`}>
-                      <FlowArrow darkMode={darkMode} />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+        <SequenceDiagram
+          darkMode={darkMode}
+          title="Write Side (Command)"
+          badgeVariant="blue"
+          steps={WRITE_SEQUENCE}
+          requestColor={palette.blue.base}
+          responseColor={palette.green.base}
+          labelColor={labelColor}
+          mutedColor={mutedColor}
+          borderColor={borderColor}
+        />
 
-          {/* Divider */}
-          <div className={css`
-            width: 1px;
-            background: ${borderColor};
-            @media (max-width: 900px) { width: 100%; height: 1px; }
-          `} />
+        <div className={css`height: 24px;`} />
 
-          {/* Read Side */}
-          <div className={css`flex: 1;`}>
-            <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 12px;`}>
-              <Badge variant="yellow">Read Side (Queries)</Badge>
-              <Body className={css`color: ${mutedColor} !important; font-size: 12px !important;`}>queries.py</Body>
-            </div>
-            <div className={css`display: flex; flex-direction: column; gap: 8px;`}>
-              {READ_SIDE_STEPS.map((step, i) => (
-                <div key={i}>
-                  <div
-                    className={css`
-                      display: flex;
-                      align-items: center;
-                      gap: 8px;
-                      padding: 10px 14px;
-                      border-radius: 6px;
-                      border: 1px solid ${borderColor};
-                      background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'};
-                    `}
-                  >
-                    <div className={css`width: 8px; height: 8px; border-radius: 50%; background: ${step.color}; flex-shrink: 0;`} />
-                    <div>
-                      <div className={css`font-size: 13px; font-weight: 600; color: ${labelColor};`}>{step.label}</div>
-                      <div className={css`font-size: 11px; color: ${mutedColor}; font-family: 'Source Code Pro', monospace;`}>{step.desc}</div>
-                    </div>
-                  </div>
-                  {i < READ_SIDE_STEPS.length - 1 && (
-                    <div className={css`display: flex; justify-content: center; padding: 2px 0;`}>
-                      <FlowArrow darkMode={darkMode} />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <SequenceDiagram
+          darkMode={darkMode}
+          title="Read Side (Query)"
+          badgeVariant="yellow"
+          steps={READ_SEQUENCE}
+          requestColor={palette.yellow.dark2}
+          responseColor={palette.green.base}
+          labelColor={labelColor}
+          mutedColor={mutedColor}
+          borderColor={borderColor}
+        />
       </Card>
 
       {/* ── fold() Deep Dive ──────────────────────────────── */}
@@ -562,6 +494,329 @@ export default function CQRSPage() {
   );
 }
 
+// ── Sequence diagram component ───────────────────────────────
+
+type SeqStep = {
+  from: number;
+  to: number;
+  label: string;
+  style: 'request' | 'response' | 'self';
+};
+
+function SequenceDiagram({
+  darkMode,
+  title,
+  badgeVariant,
+  steps,
+  requestColor,
+  responseColor,
+  labelColor,
+  mutedColor,
+  borderColor,
+}: {
+  darkMode: boolean;
+  title: string;
+  badgeVariant: 'blue' | 'yellow';
+  steps: SeqStep[];
+  requestColor: string;
+  responseColor: string;
+  labelColor: string;
+  mutedColor: string;
+  borderColor: string;
+}) {
+  const laneCount = SWIM_LANES.length;
+  const laneWidth = 220;
+  const totalWidth = laneCount * laneWidth;
+  const headerHeight = 56;
+  const rowHeight = 56;
+  const diagramHeight = headerHeight + steps.length * rowHeight + 16;
+
+  const laneX = (i: number) => i * laneWidth + laneWidth / 2;
+
+  return (
+    <div>
+      <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 12px;`}>
+        <Badge variant={badgeVariant}>{title}</Badge>
+        <div className={css`display: flex; align-items: center; gap: 12px; margin-left: 8px;`}>
+          <div className={css`display: flex; align-items: center; gap: 4px;`}>
+            <div className={css`width: 20px; height: 2px; background: ${requestColor};`} />
+            <span className={css`font-size: 11px; color: ${mutedColor};`}>request</span>
+          </div>
+          <div className={css`display: flex; align-items: center; gap: 4px;`}>
+            <div className={css`width: 20px; height: 2px; background: ${responseColor}; border-top: 2px dashed ${responseColor}; height: 0;`} />
+            <span className={css`font-size: 11px; color: ${mutedColor};`}>response</span>
+          </div>
+        </div>
+      </div>
+
+      <div className={css`overflow-x: auto; border: 1px solid ${borderColor}; border-radius: 8px; background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'};`}>
+        <svg
+          width="100%"
+          height={diagramHeight}
+          viewBox={`0 0 ${totalWidth} ${diagramHeight}`}
+          preserveAspectRatio="xMidYMid meet"
+          className={css`display: block; min-width: ${totalWidth}px;`}
+        >
+          {/* Lane headers */}
+          {SWIM_LANES.map((lane, i) => (
+            <g key={lane}>
+              <rect
+                x={laneX(i) - 64}
+                y={8}
+                width={128}
+                height={34}
+                rx={6}
+                fill={darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'}
+                stroke={borderColor}
+                strokeWidth={1}
+              />
+              <text
+                x={laneX(i)}
+                y={30}
+                textAnchor="middle"
+                fill={labelColor}
+                fontSize={13}
+                fontWeight={600}
+                fontFamily="'Euclid Circular A', sans-serif"
+              >
+                {lane}
+              </text>
+            </g>
+          ))}
+
+          {/* Lifelines */}
+          {SWIM_LANES.map((_, i) => (
+            <line
+              key={i}
+              x1={laneX(i)}
+              y1={headerHeight}
+              x2={laneX(i)}
+              y2={diagramHeight}
+              stroke={borderColor}
+              strokeWidth={1}
+              strokeDasharray="4,4"
+            />
+          ))}
+
+          {/* Message arrows */}
+          {steps.map((step, idx) => {
+            const y = headerHeight + idx * rowHeight + rowHeight / 2 + 4;
+            const color = step.style === 'response' ? responseColor : requestColor;
+            const isDashed = step.style === 'response';
+
+            if (step.style === 'self') {
+              // Self-call loop
+              const x = laneX(step.from);
+              return (
+                <g key={idx}>
+                  {/* Step number */}
+                  <circle cx={18} cy={y} r={12} fill={color} opacity={0.15} />
+                  <text x={18} y={y + 4} textAnchor="middle" fill={color} fontSize={12} fontWeight={700}>
+                    {idx + 1}
+                  </text>
+                  {/* Self-loop */}
+                  <path
+                    d={`M ${x} ${y - 8} L ${x + 32} ${y - 8} L ${x + 32} ${y + 8} L ${x + 5} ${y + 8}`}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={1.5}
+                  />
+                  {/* Arrowhead */}
+                  <polygon
+                    points={`${x + 5},${y + 4} ${x + 5},${y + 12} ${x - 1},${y + 8}`}
+                    fill={color}
+                  />
+                  {/* Label */}
+                  <text
+                    x={x + 38}
+                    y={y + 1}
+                    fill={mutedColor}
+                    fontSize={12}
+                    fontFamily="'Source Code Pro', monospace"
+                  >
+                    {step.label}
+                  </text>
+                </g>
+              );
+            }
+
+            const x1 = laneX(step.from);
+            const x2 = laneX(step.to);
+            const direction = x2 > x1 ? 1 : -1;
+            const arrowTip = x2;
+            const arrowBase = x2 - direction * 8;
+
+            return (
+              <g key={idx}>
+                {/* Step number */}
+                <circle cx={18} cy={y} r={12} fill={color} opacity={0.15} />
+                <text x={18} y={y + 4} textAnchor="middle" fill={color} fontSize={12} fontWeight={700}>
+                  {idx + 1}
+                </text>
+                {/* Line */}
+                <line
+                  x1={x1}
+                  y1={y}
+                  x2={arrowBase}
+                  y2={y}
+                  stroke={color}
+                  strokeWidth={1.5}
+                  strokeDasharray={isDashed ? '6,3' : 'none'}
+                />
+                {/* Arrowhead */}
+                <polygon
+                  points={`${arrowTip},${y} ${arrowBase},${y - 4} ${arrowBase},${y + 4}`}
+                  fill={color}
+                />
+                {/* Label — centered above the arrow */}
+                <text
+                  x={(x1 + x2) / 2}
+                  y={y - 10}
+                  textAnchor="middle"
+                  fill={mutedColor}
+                  fontSize={12}
+                  fontFamily="'Source Code Pro', monospace"
+                >
+                  {step.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ── Syntax highlighting ──────────────────────────────────────
+
+interface HighlightToken {
+  text: string;
+  color?: string;
+}
+
+function highlightCode(code: string, lang: string, darkMode: boolean): HighlightToken[][] {
+  const colors = {
+    keyword: darkMode ? '#c792ea' : '#7c3aed',
+    string: darkMode ? '#c3e88d' : '#16a34a',
+    comment: darkMode ? '#546e7a' : '#9ca3af',
+    function: darkMode ? '#82aaff' : '#2563eb',
+    decorator: darkMode ? '#ffcb6b' : '#d97706',
+    type: darkMode ? '#f78c6c' : '#ea580c',
+    default: darkMode ? palette.gray.light2 : palette.gray.dark2,
+  };
+
+  const pyKeywords = /\b(def|class|for|if|else|elif|return|import|from|with|as|try|except|raise|not|and|or|in|is|None|True|False|self|lambda|yield|pass|break|continue)\b/;
+  const tsKeywords = /\b(function|const|let|var|for|switch|case|break|return|as|type|interface|if|else|new|this|typeof|instanceof|export|import|default|from)\b/;
+
+  return code.split('\n').map((line) => {
+    const tokens: HighlightToken[] = [];
+
+    if (lang === 'python') {
+      // Comment
+      if (line.trimStart().startsWith('#')) {
+        return [{ text: line, color: colors.comment }];
+      }
+      // Multi-line string (triple quote lines)
+      if (line.trimStart().startsWith('"""') || line.trimStart().startsWith("'''")) {
+        return [{ text: line, color: colors.string }];
+      }
+      // Decorator
+      if (line.trimStart().startsWith('@')) {
+        return [{ text: line, color: colors.decorator }];
+      }
+
+      let remaining = line;
+      while (remaining.length > 0) {
+        // String
+        const strMatch = remaining.match(/^(f?["'])(.*?)\1/);
+        if (strMatch) {
+          tokens.push({ text: strMatch[0], color: colors.string });
+          remaining = remaining.slice(strMatch[0].length);
+          continue;
+        }
+        // Keyword
+        const kwMatch = remaining.match(new RegExp(`^${pyKeywords.source}`));
+        if (kwMatch) {
+          tokens.push({ text: kwMatch[0], color: kwMatch[0] === 'self' ? colors.type : colors.keyword });
+          remaining = remaining.slice(kwMatch[0].length);
+          continue;
+        }
+        // Function name after def
+        if (tokens.length > 0 && tokens[tokens.length - 1].text === 'def') {
+          const fnMatch = remaining.match(/^(\s+)(\w+)/);
+          if (fnMatch) {
+            tokens.push({ text: fnMatch[1], color: colors.default });
+            tokens.push({ text: fnMatch[2], color: colors.function });
+            remaining = remaining.slice(fnMatch[0].length);
+            continue;
+          }
+        }
+        // Type hint after colon
+        const typeMatch = remaining.match(/^:\s*([\w\[\]|, ]+)/);
+        if (typeMatch) {
+          tokens.push({ text: ':', color: colors.default });
+          tokens.push({ text: ' ' + typeMatch[1].trim(), color: colors.type });
+          remaining = remaining.slice(typeMatch[0].length);
+          continue;
+        }
+        // Inline comment
+        const commentMatch = remaining.match(/^(\s*#.*)$/);
+        if (commentMatch) {
+          tokens.push({ text: commentMatch[0], color: colors.comment });
+          remaining = '';
+          continue;
+        }
+        // Default character
+        tokens.push({ text: remaining[0], color: colors.default });
+        remaining = remaining.slice(1);
+      }
+    } else {
+      // TypeScript
+      if (line.trimStart().startsWith('//')) {
+        return [{ text: line, color: colors.comment }];
+      }
+
+      let remaining = line;
+      while (remaining.length > 0) {
+        // String
+        const strMatch = remaining.match(/^(['"`])(.*?)\1/);
+        if (strMatch) {
+          tokens.push({ text: strMatch[0], color: colors.string });
+          remaining = remaining.slice(strMatch[0].length);
+          continue;
+        }
+        // Keyword
+        const kwMatch = remaining.match(new RegExp(`^${tsKeywords.source}`));
+        if (kwMatch) {
+          tokens.push({ text: kwMatch[0], color: colors.keyword });
+          remaining = remaining.slice(kwMatch[0].length);
+          continue;
+        }
+        // Type annotation after colon (simplified)
+        const typeMatch = remaining.match(/^:\s*([A-Z][\w<>\[\]|, ]*)/);
+        if (typeMatch) {
+          tokens.push({ text: ':', color: colors.default });
+          tokens.push({ text: ' ' + typeMatch[1], color: colors.type });
+          remaining = remaining.slice(typeMatch[0].length);
+          continue;
+        }
+        // Inline comment
+        const commentMatch = remaining.match(/^(\/\/.*)$/);
+        if (commentMatch) {
+          tokens.push({ text: commentMatch[0], color: colors.comment });
+          remaining = '';
+          continue;
+        }
+        tokens.push({ text: remaining[0], color: colors.default });
+        remaining = remaining.slice(1);
+      }
+    }
+
+    return tokens.length > 0 ? tokens : [{ text: line, color: colors.default }];
+  });
+}
+
 // ── Reusable code block component ────────────────────────────
 
 function CodeBlock({
@@ -582,6 +837,8 @@ function CodeBlock({
   const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const codeBg = darkMode ? '#0d1117' : '#f6f8fa';
   const codeColor = darkMode ? palette.gray.light2 : palette.gray.dark2;
+
+  const highlighted = highlightCode(code, lang, darkMode);
 
   return (
     <div
@@ -620,7 +877,14 @@ function CodeBlock({
           white-space: pre;
         `}
       >
-        {code}
+        {highlighted.map((lineTokens, lineIdx) => (
+          <span key={lineIdx}>
+            {lineTokens.map((token, tokenIdx) => (
+              <span key={tokenIdx} style={{ color: token.color }}>{token.text}</span>
+            ))}
+            {lineIdx < highlighted.length - 1 ? '\n' : ''}
+          </span>
+        ))}
       </pre>
     </div>
   );

@@ -1,9 +1,9 @@
 'use client';
 
 import { createContext, useContext, useRef, useState, useCallback } from 'react';
-import type { Position, PortfolioSummary, HourlyExposure } from './types';
+import type { Position, PortfolioSummary, HourlyExposure, ExposurePoint } from './types';
 
-const BACKEND = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const BACKEND = '/api';
 
 export interface ScenarioLiveData {
   hourlyPnl: { hour: number; baseline: number; dynamic: number; difference: number }[];
@@ -18,12 +18,21 @@ export interface LiveFeedState {
   positions: Position[] | null;
   summary: PortfolioSummary | null;
   exposure: HourlyExposure[] | null;
+  exposureTimeSeries: ExposurePoint[] | null;
   scenarioComparison: ScenarioLiveData | null;
 }
 
 interface LiveFeedContextValue extends LiveFeedState {
   startFeed: () => void;
   stopFeed: () => void;
+  pushData: (data: {
+    positions?: Position[];
+    summary?: PortfolioSummary;
+    exposure?: HourlyExposure[];
+    exposureTimeSeries?: ExposurePoint[];
+    scenarioComparison?: ScenarioLiveData;
+  }) => void;
+  addPosition: (position: Position) => void;
 }
 
 const LiveFeedContext = createContext<LiveFeedContextValue>({
@@ -31,9 +40,12 @@ const LiveFeedContext = createContext<LiveFeedContextValue>({
   positions: null,
   summary: null,
   exposure: null,
+  exposureTimeSeries: null,
   scenarioComparison: null,
   startFeed: () => {},
   stopFeed: () => {},
+  pushData: () => {},
+  addPosition: () => {},
 });
 
 export const useLiveFeed = () => useContext(LiveFeedContext);
@@ -44,6 +56,7 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
     positions: null,
     summary: null,
     exposure: null,
+    exposureTimeSeries: null,
     scenarioComparison: null,
   });
 
@@ -64,6 +77,7 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
       positions: null,
       summary: null,
       exposure: null,
+      exposureTimeSeries: null,
       scenarioComparison: null,
     });
   }, []);
@@ -75,7 +89,7 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
 
     setState((prev) => ({ ...prev, active: true }));
 
-    // Dashboard SSE
+    // Try backend SSE — if it fails, the feed still works via pushData()
     const dashES = new EventSource(`${BACKEND}/dashboard/stream`);
     dashboardESRef.current = dashES;
     dashES.onmessage = (event) => {
@@ -84,9 +98,9 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
         setState((prev) => ({
           ...prev,
           active: true,
-          positions: data.positions || null,
-          summary: data.summary || null,
-          exposure: data.exposure || null,
+          positions: data.positions || prev.positions,
+          summary: data.summary || prev.summary,
+          exposure: data.exposure || prev.exposure,
         }));
       } catch { /* ignore parse errors */ }
     };
@@ -95,7 +109,6 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
       dashboardESRef.current = null;
     };
 
-    // Scenario SSE
     const scenES = new EventSource(`${BACKEND}/scenarios/stream`);
     scenarioESRef.current = scenES;
     scenES.onmessage = (event) => {
@@ -113,8 +126,48 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Push data directly (used by simulation mode to feed the dashboard)
+  const pushData = useCallback((data: {
+    positions?: Position[];
+    summary?: PortfolioSummary;
+    exposure?: HourlyExposure[];
+    exposureTimeSeries?: ExposurePoint[];
+    scenarioComparison?: ScenarioLiveData;
+  }) => {
+    setState((prev) => ({
+      ...prev,
+      positions: data.positions ?? prev.positions,
+      summary: data.summary ?? prev.summary,
+      exposure: data.exposure ?? prev.exposure,
+      exposureTimeSeries: data.exposureTimeSeries ?? prev.exposureTimeSeries,
+      scenarioComparison: data.scenarioComparison ?? prev.scenarioComparison,
+    }));
+  }, []);
+
+  const addPosition = useCallback((position: Position) => {
+    setState((prev) => {
+      const current = prev.positions ?? [];
+      const newPositions = [...current, position];
+      const totalPnl = newPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
+      const portfolioValue = newPositions.reduce((s, p) => s + p.currentPrice * p.quantity, 0);
+      return {
+        ...prev,
+        positions: newPositions,
+        summary: prev.summary
+          ? {
+              ...prev.summary,
+              activePositions: newPositions.length,
+              totalPnl,
+              portfolioValue: Math.round(portfolioValue),
+              pnlDelta: `${totalPnl >= 0 ? '+' : ''}${(totalPnl / (portfolioValue || 1) * 100).toFixed(1)}%`,
+            }
+          : prev.summary,
+      };
+    });
+  }, []);
+
   return (
-    <LiveFeedContext.Provider value={{ ...state, startFeed, stopFeed }}>
+    <LiveFeedContext.Provider value={{ ...state, startFeed, stopFeed, pushData, addPosition }}>
       {children}
     </LiveFeedContext.Provider>
   );

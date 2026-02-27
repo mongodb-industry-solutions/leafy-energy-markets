@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback } from 'react';
 import LeafyGreenProvider from '@leafygreen-ui/leafygreen-provider';
 import EmotionRegistry from './EmotionRegistry';
 import { LiveFeedProvider } from '@/lib/live-feed-context';
+import { GeneratorProvider } from '@/lib/generator-context';
 
 interface DarkModeContextValue {
   darkMode: boolean;
@@ -26,7 +27,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       <DarkModeContext.Provider value={{ darkMode, toggleDarkMode }}>
         <LeafyGreenProvider darkMode={darkMode}>
           <LiveFeedProvider>
-            {children}
+            <GeneratorProvider>
+              {children}
+            </GeneratorProvider>
           </LiveFeedProvider>
         </LeafyGreenProvider>
       </DarkModeContext.Provider>

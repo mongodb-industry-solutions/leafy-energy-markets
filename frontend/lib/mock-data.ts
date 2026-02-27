@@ -38,10 +38,16 @@ export const positions: Position[] = [
   { id: 'P014', instrument: 'DE Peakload M04-26', type: 'POWER', quantity: 180, avgPrice: 98.4, currentPrice: 94.1, unrealizedPnl: -774 },
 ];
 
+// Deterministic seed based on hour index (no Math.random at module load)
+function seededNoise(seed: number): number {
+  const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 export const hourlyExposure: HourlyExposure[] = Array.from({ length: 24 }, (_, i) => ({
   hour: i,
   mwh: Math.round(
-    150 + 250 * Math.sin((i - 6) * Math.PI / 12) + (Math.random() - 0.5) * 60
+    150 + 250 * Math.sin((i - 6) * Math.PI / 12) + (seededNoise(i) - 0.5) * 60
   ),
 }));
 
@@ -191,24 +197,24 @@ export const searchDocuments: SearchDocument[] = [
 
 export const suggestedPrompts: SuggestedPrompt[] = [
   {
-    title: 'Explain P&L Difference',
-    description: 'Why does the dynamic tariff scenario save ~12% vs baseline?',
-    prompt: 'Explain why the dynamic tariff scenario with time-of-use pricing and load shifting saves approximately 12% compared to the flat tariff baseline for Portfolio PORTFOLIO-123 in the NORTH region.',
+    title: 'Portfolio Recommendations',
+    description: 'What positions should I adjust based on current generator output?',
+    prompt: 'What positions should I adjust based on current generator output? Analyze my portfolio and suggest trades.',
+  },
+  {
+    title: 'Policy Impact',
+    description: 'How do recent EU policies affect my portfolio?',
+    prompt: 'How do recent EU energy policies affect my portfolio? Search for relevant IEA policies and analyze the impact on my current positions.',
+  },
+  {
+    title: 'Market Conditions',
+    description: 'Recommend trades based on market conditions',
+    prompt: 'Recommend trades based on current market conditions and my portfolio exposure. Consider vessel arrivals and generator output.',
   },
   {
     title: 'Portfolio Risk Summary',
     description: 'What are the key risks in my current portfolio?',
     prompt: 'Summarize the key risks in my current energy portfolio, including market risk, ESG transition risk, and concentration risk.',
-  },
-  {
-    title: 'Market Outlook',
-    description: 'What is the European power market outlook for Q2 2026?',
-    prompt: 'What is the outlook for European wholesale electricity prices in Q2 2026? Include factors like gas prices, renewable generation, and demand trends.',
-  },
-  {
-    title: 'Optimization Ideas',
-    description: 'How can I optimize my energy procurement strategy?',
-    prompt: 'Based on my current portfolio positions and market conditions, what optimization strategies would you recommend for reducing costs while maintaining ESG compliance?',
   },
   {
     title: 'Tanker Supply Forecast',

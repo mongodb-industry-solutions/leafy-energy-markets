@@ -160,7 +160,7 @@ export default function DashboardPage() {
 
       <PortfolioSummaryCards summary={activeSummary} />
       <PositionsTable positions={activePositions} />
-      <ExposureChart data={activeExposure} />
+      <ExposureChart data={activeExposure} timeSeries={liveFeed.exposureTimeSeries} />
     </div>
   );
 }

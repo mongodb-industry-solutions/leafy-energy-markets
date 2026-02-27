@@ -14,6 +14,7 @@ import type {
   SubstationReading,
   GeneratorOutputPoint,
   GeneratorFuel,
+  ExposurePoint,
 } from './types';
 
 export type TelemetryMode = 'simulation' | 'backend';
@@ -22,6 +23,7 @@ const BACKEND = '/api';
 const MAX_POINTS = 60;
 const MAX_FEED_EVENTS = 80;
 const MAX_SUBSTATION_HISTORY = 60;
+const MAX_EXPOSURE_POINTS = 120;
 
 // ── Substations (energy generators with metadata) ────────
 
@@ -115,9 +117,8 @@ function simulateFrequency(): number {
   return +(49.95 + Math.random() * 0.1).toFixed(2);
 }
 
-function generateSubstationReadings(elapsed: number): Map<string, SubstationReading> {
-  const now = new Date();
-  const timeLabel = `${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+function generateSubstationReadings(elapsed: number, wallTime: Date): Map<string, SubstationReading> {
+  const timeLabel = `${wallTime.getMinutes().toString().padStart(2, '0')}:${wallTime.getSeconds().toString().padStart(2, '0')}`;
   const readings = new Map<string, SubstationReading>();
   for (const sub of SUBSTATIONS) {
     readings.set(sub.id, {
@@ -167,10 +168,10 @@ function randomPayload(eventType: TelemetryEventType): Record<string, string | n
 function generateOriginatorEvents(
   enabledTypes: TelemetryEventType[],
   count: number,
+  wallTime: Date,
 ): OriginatorEvent[] {
   const events: OriginatorEvent[] = [];
-  const now = new Date();
-  const ts = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+  const ts = `${wallTime.getHours().toString().padStart(2, '0')}:${wallTime.getMinutes().toString().padStart(2, '0')}:${wallTime.getSeconds().toString().padStart(2, '0')}`;
   for (let i = 0; i < count; i++) {
     const sub = SUBSTATIONS[Math.floor(Math.random() * SUBSTATIONS.length)];
     const possibleTypes = sub.types.filter((t) => enabledTypes.includes(t));
@@ -282,6 +283,10 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
   const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
   const totalEventsRef = useRef<number>(0);
+  const startWallTimeRef = useRef<Date>(new Date());
+  const cumulativePnlRef = useRef<number>(0);
+  const prevTotalPnlRef = useRef<number>(0);
+  const exposureTimeSeriesRef = useRef<ExposurePoint[]>([]);
   const configRef = useRef(config);
   configRef.current = config;
   const liveFeedRef = useRef(liveFeed);
@@ -300,8 +305,12 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
 
   const appendMetrics = useCallback((metrics: TelemetryMetrics, elapsed: number) => {
     setLatestMetrics(metrics);
-    const now = new Date();
-    const timeLabel = `${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+
+    // Compute time-coherent wall time from start
+    const currentTime = new Date(startWallTimeRef.current.getTime() + elapsed * 1000);
+    const timeLabel = `${currentTime.getMinutes().toString().padStart(2, '0')}:${currentTime.getSeconds().toString().padStart(2, '0')}`;
+    const fullTimeLabel = `${currentTime.getHours().toString().padStart(2, '0')}:${currentTime.getMinutes().toString().padStart(2, '0')}:${currentTime.getSeconds().toString().padStart(2, '0')}`;
+
     const point: TelemetryTimeSeriesPoint = {
       time: timeLabel,
       throughput: metrics.actual_throughput,
@@ -315,13 +324,13 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     });
 
     const batchCount = Math.min(8, Math.max(2, Math.round(metrics.actual_throughput / 200)));
-    const newEvents = generateOriginatorEvents(configRef.current.event_types, batchCount);
+    const newEvents = generateOriginatorEvents(configRef.current.event_types, batchCount, currentTime);
     setFeedEvents((prev) => {
       const next = [...newEvents, ...prev];
       return next.length > MAX_FEED_EVENTS ? next.slice(0, MAX_FEED_EVENTS) : next;
     });
 
-    const readings = generateSubstationReadings(elapsed);
+    const readings = generateSubstationReadings(elapsed, currentTime);
     setSubstations((prev) =>
       prev.map((sub) => {
         const reading = readings.get(sub.id);
@@ -354,6 +363,24 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     }));
     const totalPnl = simPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
     const portfolioValue = simPositions.reduce((s, p) => s + p.currentPrice * p.quantity, 0);
+
+    // Compute exposure time series point
+    let totalMwh = 0;
+    readings.forEach((reading) => { totalMwh += reading.output_mw; });
+    const pnlDelta = totalPnl - prevTotalPnlRef.current;
+    cumulativePnlRef.current += pnlDelta;
+    prevTotalPnlRef.current = totalPnl;
+
+    const exposurePoint: ExposurePoint = {
+      time: fullTimeLabel,
+      mwh: Math.round(totalMwh),
+      cumulativePnl: Math.round(cumulativePnlRef.current),
+    };
+    const nextExposureSeries = [...exposureTimeSeriesRef.current, exposurePoint];
+    exposureTimeSeriesRef.current = nextExposureSeries.length > MAX_EXPOSURE_POINTS
+      ? nextExposureSeries.slice(-MAX_EXPOSURE_POINTS)
+      : nextExposureSeries;
+
     liveFeedRef.current.pushData({
       positions: simPositions,
       summary: {
@@ -365,17 +392,15 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
       exposure: mockExposure.map((e) => {
         const currentHour = Math.floor(elapsed % 24);
         if (e.hour < currentHour) {
-          // Past hours: stable realized value
           return { ...e, mwh: e.mwh + Math.round(seededJitter(e.hour + Math.floor(elapsed / 24)) * 20) };
         } else if (e.hour === currentHour) {
-          // Current hour: actively changing
           const progress = (elapsed % 1);
           return { ...e, mwh: Math.round(e.mwh * (0.5 + progress * 0.5) + (Math.random() - 0.5) * 15) };
         } else {
-          // Future hours: projected (dimmer)
           return { ...e, mwh: Math.round(e.mwh * 0.7) };
         }
       }),
+      exposureTimeSeries: [...exposureTimeSeriesRef.current],
     });
   }, []);
 
@@ -415,6 +440,10 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     setGeneratorTimeSeries([]);
     setIsSimulated(false);
     setBackendWarning(null);
+    startWallTimeRef.current = new Date();
+    cumulativePnlRef.current = 0;
+    prevTotalPnlRef.current = mockPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
+    exposureTimeSeriesRef.current = [];
 
     // Mark feed as active
     liveFeed.startFeed();

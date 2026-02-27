@@ -8,3 +8,4 @@ pytest
 langchain
 langchain-anthropic
 langchain-core
+langgraph

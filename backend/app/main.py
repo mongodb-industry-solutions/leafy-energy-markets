@@ -19,11 +19,10 @@ from app.infrastructure.db import get_client, close_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: verify MongoDB is reachable
-    client = get_client()
-    client.admin.command("ping")
+    # Startup: get_client() eagerly pings and warms the pool
+    get_client()
     yield
-    # Shutdown: close the connection pool
+    # Shutdown: drain pool and release connections
     close_client()
 
 

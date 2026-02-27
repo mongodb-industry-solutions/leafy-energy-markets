@@ -115,7 +115,6 @@ def _build_agent(coll, portfolio: list[PositionInput], generators: list[Generato
     """Build a LangChain ReAct agent with domain tools."""
     from langchain_anthropic import ChatAnthropic
     from langchain_core.tools import tool
-    from langchain_core.messages import SystemMessage
     from langgraph.prebuilt import create_react_agent
 
     @tool
@@ -223,7 +222,9 @@ Provide specific, actionable investment recommendations grounded in data. Always
 Keep responses focused and structured with clear headings. If you recommend trades, explain the rationale."""
 
     llm = ChatAnthropic(
-        model="claude-sonnet-4-6",
+        model="claude-opus-4-6",
+        anthropic_api_key=os.getenv("AZURE_FOUNDRY_API_KEY", ""),
+        anthropic_api_url=os.getenv("AZURE_FOUNDRY_ENDPOINT", ""),
         temperature=0.3,
         max_tokens=2048,
     )
@@ -241,11 +242,12 @@ Keep responses focused and structured with clear headings. If you recommend trad
 
 @router.post("/advisor", response_model=AdvisorResponse)
 async def advisor_chat(req: AdvisorRequest, client=Depends(get_db)):
-    """Portfolio-aware AI advisor using LangChain ReAct agent."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
+    """Portfolio-aware AI advisor using LangChain ReAct agent with Claude on Azure AI Foundry."""
+    api_key = os.getenv("AZURE_FOUNDRY_API_KEY")
+    endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT")
+    if not api_key or not endpoint:
         return AdvisorResponse(
-            response="Anthropic API key not configured. Set ANTHROPIC_API_KEY in deploy/.env to enable the AI advisor.",
+            response="Azure AI Foundry not configured. Set AZURE_FOUNDRY_API_KEY and AZURE_FOUNDRY_ENDPOINT in deploy/.env to enable the AI advisor.",
             sources=[],
             tool_calls=[],
         )

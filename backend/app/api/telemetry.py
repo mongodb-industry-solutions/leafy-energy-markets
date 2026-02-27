@@ -4,14 +4,13 @@ import os
 import random
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from pymongo import MongoClient
-from pymongo.errors import CollectionInvalid
+from pymongo.errors import CollectionInvalid, OperationFailure
 
 router = APIRouter()
 
@@ -47,17 +46,21 @@ class TelemetryLoadGenerator:
         self._latencies: deque[float] = deque(maxlen=1000)
         self._event_timestamps: deque[float] = deque(maxlen=50000)
         self._lock = asyncio.Lock()
-        self._client: Optional[MongoClient] = None
+        self._client = None
         self._collection = None
+        self._base_time: Optional[datetime] = None
+        self._start_monotonic: float = 0.0
 
     def _get_collection(self):
         if self._client is None:
-            uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+            from app.infrastructure.db import get_client
             db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
-            self._client = MongoClient(uri)
+            self._client = get_client()
             db = self._client[db_name]
 
-            # Create time-series collection if it doesn't exist
+            # Create time-series collection if it doesn't exist.
+            # CollectionInvalid: collection already exists
+            # OperationFailure: exists as a different type, or Atlas permission issue
             try:
                 db.create_collection(
                     "telemetry_events",
@@ -67,8 +70,8 @@ class TelemetryLoadGenerator:
                         "granularity": "seconds",
                     },
                 )
-            except CollectionInvalid:
-                pass  # Collection already exists
+            except (CollectionInvalid, OperationFailure):
+                pass  # Collection already exists or cannot be created — use as-is
 
             self._collection = db["telemetry_events"]
         return self._collection
@@ -83,6 +86,8 @@ class TelemetryLoadGenerator:
         self._errors = 0
         self._latencies.clear()
         self._event_timestamps.clear()
+        self._base_time = datetime.now(timezone.utc)
+        self._start_monotonic = time.monotonic()
 
         # Ensure collection exists
         loop = asyncio.get_event_loop()
@@ -104,9 +109,9 @@ class TelemetryLoadGenerator:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
 
-    def _generate_event(self, event_types: List[str]) -> dict:
+    def _generate_event(self, event_types: List[str], timestamp: Optional[datetime] = None) -> dict:
         event_type = random.choice(event_types)
-        now = datetime.now(timezone.utc)
+        now = timestamp or datetime.now(timezone.utc)
 
         if event_type == "price_ticks":
             return {
@@ -149,7 +154,9 @@ class TelemetryLoadGenerator:
 
         while self._running:
             try:
-                batch = [self._generate_event(event_types) for _ in range(batch_size)]
+                elapsed = time.monotonic() - self._start_monotonic
+                batch_ts = self._base_time + timedelta(seconds=elapsed) if self._base_time else datetime.now(timezone.utc)
+                batch = [self._generate_event(event_types, batch_ts) for _ in range(batch_size)]
 
                 t0 = time.monotonic()
                 await loop.run_in_executor(None, lambda: collection.insert_many(batch))

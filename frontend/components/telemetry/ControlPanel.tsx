@@ -8,8 +8,7 @@ import { Body, H3, Overline } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '@/components/Providers';
 import type { TelemetryConfig, TelemetryEventType } from '@/lib/types';
-
-export type TelemetryMode = 'simulation' | 'backend';
+import type { TelemetryMode } from '@/lib/generator-context';
 
 interface ControlPanelProps {
   config: TelemetryConfig;
@@ -19,8 +18,6 @@ interface ControlPanelProps {
   onStop: () => void;
   mode: TelemetryMode;
   onModeChange: (mode: TelemetryMode) => void;
-  liveFeed: boolean;
-  onLiveFeedChange: (enabled: boolean) => void;
   backendWarning?: string | null;
 }
 
@@ -30,15 +27,13 @@ const EVENT_TYPE_OPTIONS: { value: TelemetryEventType; label: string }[] = [
   { value: 'trades', label: 'Trades' },
 ];
 
-// Logarithmic slider: internal 0–100 → display 10–400,000
-const LOG_MIN = 1; // 10^1 = 10
-const LOG_MAX = 5.602; // 10^5.602 ≈ 400,000
+const LOG_MIN = 1;
+const LOG_MAX = 5.602;
 const SNAP_VALUES = [10, 50, 100, 500, 1_000, 5_000, 10_000, 50_000, 100_000, 200_000, 400_000];
 
 function sliderToEventsPerSec(sliderVal: number): number {
   const logVal = LOG_MIN + (sliderVal / 100) * (LOG_MAX - LOG_MIN);
   const raw = Math.pow(10, logVal);
-  // Snap to nearest nice value
   let closest = SNAP_VALUES[0];
   let closestDist = Math.abs(raw - closest);
   for (const snap of SNAP_VALUES) {
@@ -69,8 +64,6 @@ export default function ControlPanel({
   onStop,
   mode,
   onModeChange,
-  liveFeed,
-  onLiveFeedChange,
   backendWarning,
 }: ControlPanelProps) {
   const { darkMode } = useDarkMode();
@@ -170,41 +163,6 @@ export default function ControlPanel({
         )}
       </div>
 
-      {/* Live Feed Toggle */}
-      <div className={fieldStyle}>
-        <div
-          className={css`
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-          `}
-        >
-          <Body className={css`color: ${textColor} !important; font-size: 13px !important;`}>
-            Feed to Dashboard
-          </Body>
-          <Toggle
-            aria-label="Live Feed"
-            size="small"
-            checked={liveFeed}
-            disabled={mode !== 'backend' || !isRunning}
-            darkMode={darkMode}
-            onChange={() => onLiveFeedChange(!liveFeed)}
-          />
-        </div>
-        {mode === 'simulation' && (
-          <Body
-            className={css`
-              color: ${darkMode ? palette.gray.dark1 : palette.gray.light1} !important;
-              font-size: 11px !important;
-              margin-top: 4px !important;
-              font-style: italic;
-            `}
-          >
-            Requires Backend mode
-          </Body>
-        )}
-      </div>
-
       <div className={sectionDivider} />
 
       {/* Concurrent Writers */}
@@ -230,7 +188,7 @@ export default function ControlPanel({
         />
       </div>
 
-      {/* Events per Second — Logarithmic */}
+      {/* Events per Second */}
       <div className={fieldStyle}>
         <div className={labelStyle}>
           <Body className={css`color: ${textColor} !important; font-size: 13px !important;`}>

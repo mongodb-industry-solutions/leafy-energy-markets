@@ -1,13 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo import MongoClient
-import os
 
 from app.domain.aggregates import TariffScenario, Instrument
 from app.infrastructure.event_store import EventStore
-
-def get_db():
-    client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
-    return client
+from app.infrastructure.db import get_db
 
 router = APIRouter()
 

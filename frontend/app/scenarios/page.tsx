@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import { css } from '@emotion/css';
 import Button from '@leafygreen-ui/button';
 import Icon from '@leafygreen-ui/icon';
+import Banner from '@leafygreen-ui/banner';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '@/components/Providers';
 import { useLiveFeed } from '@/lib/live-feed-context';
@@ -18,7 +18,6 @@ import type { TariffScenario, ScenarioComparison as ComparisonType } from '@/lib
 
 export default function ScenariosPage() {
   const { darkMode } = useDarkMode();
-  const router = useRouter();
   const liveFeed = useLiveFeed();
   const [scenarios, setScenarios] = useState<TariffScenario[]>(mockScenarios);
   const [demoState, setDemoState] = useState<DemoState>(initialDemoState);
@@ -28,7 +27,7 @@ export default function ScenariosPage() {
     const newScenario: TariffScenario = {
       _id: scenarioId,
       portfolio_id: 'PORTFOLIO-123',
-      region: 'NORTH',
+      region: 'Germany',
       from_date: '2026-02-10T10:00:00Z',
       to_date: '2026-02-17T10:00:00Z',
       status: 'created',
@@ -121,6 +120,15 @@ export default function ScenariosPage() {
           </div>
         }
       />
+
+      {/* Compact explainer */}
+      <Banner
+        variant="info"
+        darkMode={darkMode}
+        className={css`margin-bottom: 24px;`}
+      >
+        Compare <strong>flat tariffs</strong> vs <strong>dynamic time-of-use pricing</strong> with load shifting. Typical savings: 8–15%. Each scenario is event-sourced in MongoDB for full replay & audit.
+      </Banner>
 
       <ScenarioForm onCreated={handleCreated} />
 

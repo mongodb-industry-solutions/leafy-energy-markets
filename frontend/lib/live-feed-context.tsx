@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useRef, useState, useCallback } from 'react';
-import type { Position, PortfolioSummary, HourlyExposure } from './types';
+import type { Position, PortfolioSummary, HourlyExposure, ExposurePoint } from './types';
 
 const BACKEND = '/api';
 
@@ -18,6 +18,7 @@ export interface LiveFeedState {
   positions: Position[] | null;
   summary: PortfolioSummary | null;
   exposure: HourlyExposure[] | null;
+  exposureTimeSeries: ExposurePoint[] | null;
   scenarioComparison: ScenarioLiveData | null;
 }
 
@@ -28,6 +29,7 @@ interface LiveFeedContextValue extends LiveFeedState {
     positions?: Position[];
     summary?: PortfolioSummary;
     exposure?: HourlyExposure[];
+    exposureTimeSeries?: ExposurePoint[];
     scenarioComparison?: ScenarioLiveData;
   }) => void;
   addPosition: (position: Position) => void;
@@ -38,6 +40,7 @@ const LiveFeedContext = createContext<LiveFeedContextValue>({
   positions: null,
   summary: null,
   exposure: null,
+  exposureTimeSeries: null,
   scenarioComparison: null,
   startFeed: () => {},
   stopFeed: () => {},
@@ -53,6 +56,7 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
     positions: null,
     summary: null,
     exposure: null,
+    exposureTimeSeries: null,
     scenarioComparison: null,
   });
 
@@ -73,6 +77,7 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
       positions: null,
       summary: null,
       exposure: null,
+      exposureTimeSeries: null,
       scenarioComparison: null,
     });
   }, []);
@@ -126,6 +131,7 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
     positions?: Position[];
     summary?: PortfolioSummary;
     exposure?: HourlyExposure[];
+    exposureTimeSeries?: ExposurePoint[];
     scenarioComparison?: ScenarioLiveData;
   }) => {
     setState((prev) => ({
@@ -133,6 +139,7 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
       positions: data.positions ?? prev.positions,
       summary: data.summary ?? prev.summary,
       exposure: data.exposure ?? prev.exposure,
+      exposureTimeSeries: data.exposureTimeSeries ?? prev.exposureTimeSeries,
       scenarioComparison: data.scenarioComparison ?? prev.scenarioComparison,
     }));
   }, []);

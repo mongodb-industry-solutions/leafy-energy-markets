@@ -23,13 +23,35 @@ const flicker = keyframes`
   97% { opacity: 1; }
 `;
 
-const PIXEL_ART = [
-  '  ██  ████  ████  ████ █   █',
-  '  █   █     █  █  █    █   █',
-  '  █   ███   ████  ███  ██ ██',
-  '  █   █     █  █  █      █  ',
-  '  ██  ████  █  █  █      █  ',
-];
+const LEAFY_LOGO = `
+:::        :::::::::: ::::::::  ::::::::::::::   :::
+:+:        :+:       :+:    :+::+:        :+:   :+:
++:+        +:+       +:+    +:++:+         +:+ +:+
++#+        +#++:++#  +#++:++#+++#++:▓+#     +#++:
++#+        +#+       +#+    +#++#+          +#+
+#+#        #+#       #+#    #+##+#         #+#
+########## ########## ###    ########     ###
+`.trimEnd();
+
+const ENERGY_LOGO = `
+:::::::::: ::::    ::: :::::::::: :::::::::   ::::::::  :::   :::
+:+:        :+:+:   :+: :+:        :+:    :+: :+:    :+: :+:   :+:
++:+        :+:+:+  +:+ +:+        +:+    +:+ +:+        +:+   +:+
++#++:++#   +#+ +:+ +#+ +#++:++#   +#++:++#:  :#:         :#+#:#
++#+        +#+  +#+#+# +#+        +#+    +#+ +#+   :::▓    +#+
+#+#        #+#   #+#+# #+#        #+#    #+# #+#    #+#    #+#
+########## ###    #### ########## ###    ###  ########     ###
+`.trimEnd();
+
+const MARKETS_LOGO = `
+::::    ::::      :::     :::::::::  :::    ::: :::::::::: ::::::::::: ::::::::
++:+:+: :+:+:+   :+: :+:   :+:    :+: :+:   :+: :+:            :+:    :+:    :+:
++:+ +:+:+ +:+  +:+   +:+  +:+    +:+ +:+  +:+  +:+            +:+    +:+
++#+  +:+  +#+ +#++:++#++: +#++:++#:  +#++:++   +#++:++#       +#+    +#++:++#++
++#+       +#+ +#+     +#+ +#+    +#+ +#+  +#+  +#+            +#+           +#+
+#+#       #+# #+#     #+# #+#    #+# #+#   #+# #+#            #+#    #+#    #+#
+###       ### ###     ### ###    ### ###    ### ##########     ###     ########
+`.trimEnd();
 
 const NAV_SECTIONS = [
   { label: 'DASHBOARD', href: '/dashboard', icon: '[]' },
@@ -76,7 +98,7 @@ export default function Home() {
           width: 100%;
           overflow: hidden;
           border-bottom: 3px solid #00ED64;
-          padding: 8px 0;
+          padding: 12px 0;
           background: #000;
         `}
       >
@@ -85,10 +107,11 @@ export default function Home() {
             display: flex;
             white-space: nowrap;
             animation: ${scroll} 30s linear infinite;
-            font-size: 12px;
-            letter-spacing: 1px;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 3px;
             color: #00ED64;
-            opacity: 0.7;
+            opacity: 0.8;
           `}
         >
           <span>{tickerText}   ///   {tickerText}   ///   </span>
@@ -103,50 +126,63 @@ export default function Home() {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 40px 24px;
-          gap: 48px;
+          padding: 24px 24px;
+          gap: 32px;
         `}
       >
-        {/* Pixel art logo */}
+        {/* ASCII logo */}
         <div
           className={css`
             text-align: center;
             opacity: ${mounted ? 1 : 0};
             transition: opacity 0.5s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
           `}
         >
           <pre
             className={css`
-              font-size: 10px;
-              line-height: 1.1;
-              letter-spacing: 2px;
+              font-size: clamp(8px, 1.6vw, 18px);
+              line-height: 1.2;
               color: #00ED64;
-              margin-bottom: 16px;
+              margin-bottom: 4px;
+              text-shadow: 0 0 10px rgba(0, 237, 100, 0.5);
             `}
           >
-            {PIXEL_ART.join('\n')}
+            {LEAFY_LOGO}
           </pre>
-          <h1
+          <pre
             className={css`
-              font-size: 48px;
-              font-weight: 900;
-              text-transform: uppercase;
-              letter-spacing: 8px;
-              margin: 0;
+              font-size: clamp(6px, 1.2vw, 14px);
+              line-height: 1.2;
               color: #00ED64;
-              text-shadow: 4px 4px 0 #005c27;
+              opacity: 0.8;
+              margin-bottom: 4px;
+              text-shadow: 0 0 8px rgba(0, 237, 100, 0.35);
             `}
           >
-            ENERGY MARKETS
-          </h1>
+            {ENERGY_LOGO}
+          </pre>
+          <pre
+            className={css`
+              font-size: clamp(5px, 1vw, 12px);
+              line-height: 1.2;
+              color: #00ED64;
+              opacity: 0.6;
+              text-shadow: 0 0 6px rgba(0, 237, 100, 0.25);
+            `}
+          >
+            {MARKETS_LOGO}
+          </pre>
           <div
             className={css`
               font-size: 14px;
               letter-spacing: 6px;
               text-transform: uppercase;
               color: #00ED64;
-              opacity: 0.6;
-              margin-top: 8px;
+              opacity: 0.5;
+              margin-top: 16px;
             `}
           >
             MONGODB ATLAS &middot; EVENT SOURCING &middot; CQRS

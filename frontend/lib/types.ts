@@ -14,6 +14,12 @@ export interface HourlyExposure {
   mwh: number;
 }
 
+export interface ExposurePoint {
+  time: string;           // "HH:MM:SS"
+  mwh: number;            // instantaneous net MWh exposure at this second
+  cumulativePnl: number;  // running cumulative P&L (EUR)
+}
+
 export interface PortfolioSummary {
   totalPnl: number;
   netExposureMwh: number;

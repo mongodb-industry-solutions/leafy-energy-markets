@@ -15,11 +15,10 @@ import { useGenerator } from '@/lib/generator-context';
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', glyph: 'Dashboard' as const },
-  { label: 'Telemetry', href: '/telemetry', glyph: 'ActivityFeed' as const },
-  { label: 'Leafy AI', href: '/leafy', glyph: 'Sparkle' as const },
-  { label: 'Event Inspector', href: '/audit', glyph: 'OpenNewTab' as const },
+  { label: 'EnerLeafy AI', href: '/leafy', glyph: 'Sparkle' as const },
+  { label: 'Auditing', href: '/audit', glyph: 'OpenNewTab' as const },
   { label: 'CQRS', href: '/cqrs', glyph: 'CurlyBraces' as const },
-  { label: 'Scenarios', href: '/scenarios', glyph: 'Charts' as const },
+  { label: 'Architecture', href: '/architecture', glyph: 'University' as const },
 ];
 
 const pulse = keyframes`
@@ -232,7 +231,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               >
                 Stop
               </Button>
-              <Link href="/telemetry">
+              <Link href="/dashboard">
                 <Button
                   variant="default"
                   size="xsmall"
@@ -268,8 +267,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               >
                 Start Generator
               </Button>
-              <Link href="/telemetry" className={css`display: block; text-align: center; margin-top: 6px; font-size: 11px; color: ${palette.green.base}; text-decoration: none; &:hover { text-decoration: underline; }`}>
-                Full Telemetry →
+              <Link href="/dashboard" className={css`display: block; text-align: center; margin-top: 6px; font-size: 11px; color: ${palette.green.base}; text-decoration: none; &:hover { text-decoration: underline; }`}>
+                Full Dashboard →
               </Link>
             </div>
           ) : null}

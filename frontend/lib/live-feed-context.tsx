@@ -33,6 +33,7 @@ interface LiveFeedContextValue extends LiveFeedState {
     scenarioComparison?: ScenarioLiveData;
   }) => void;
   addPosition: (position: Position) => void;
+  removePosition: (positionId: string) => void;
 }
 
 const LiveFeedContext = createContext<LiveFeedContextValue>({
@@ -46,6 +47,7 @@ const LiveFeedContext = createContext<LiveFeedContextValue>({
   stopFeed: () => {},
   pushData: () => {},
   addPosition: () => {},
+  removePosition: () => {},
 });
 
 export const useLiveFeed = () => useContext(LiveFeedContext);
@@ -166,8 +168,30 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const removePosition = useCallback((positionId: string) => {
+    setState((prev) => {
+      const current = prev.positions ?? [];
+      const newPositions = current.filter((p) => p.id !== positionId);
+      const totalPnl = newPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
+      const portfolioValue = newPositions.reduce((s, p) => s + p.currentPrice * p.quantity, 0);
+      return {
+        ...prev,
+        positions: newPositions,
+        summary: prev.summary
+          ? {
+              ...prev.summary,
+              activePositions: newPositions.length,
+              totalPnl,
+              portfolioValue: Math.round(portfolioValue),
+              pnlDelta: `${totalPnl >= 0 ? '+' : ''}${(totalPnl / (portfolioValue || 1) * 100).toFixed(1)}%`,
+            }
+          : prev.summary,
+      };
+    });
+  }, []);
+
   return (
-    <LiveFeedContext.Provider value={{ ...state, startFeed, stopFeed, pushData, addPosition }}>
+    <LiveFeedContext.Provider value={{ ...state, startFeed, stopFeed, pushData, addPosition, removePosition }}>
       {children}
     </LiveFeedContext.Provider>
   );

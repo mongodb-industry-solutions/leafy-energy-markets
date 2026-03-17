@@ -213,18 +213,41 @@ def _build_agent(coll, portfolio: list[PositionInput], generators: list[Generato
 
         return "\n".join(lines)
 
-    tools = [search_policies, search_market_intel, analyze_portfolio, get_generator_status]
+    @tool
+    def web_search(query: str) -> str:
+        """Search the web for real-time information about energy markets, oil prices, geopolitical events, weather, or any current topic. Use this when the document database doesn't have current information."""
+        try:
+            from duckduckgo_search import DDGS
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=5))
+            if not results:
+                return "No web results found."
+            parts = []
+            for r in results:
+                parts.append(f"- **{r.get('title', '')}**: {r.get('body', '')} (Source: {r.get('href', '')})")
+            return "\n".join(parts)
+        except Exception as e:
+            return f"Web search unavailable: {e}"
 
-    system_prompt = """You are Leafy, an AI energy market investment advisor at a European energy trading firm. You have access to the trader's live portfolio positions, real-time power generator telemetry, IEA energy policies, vessel tracking data, and market research documents stored in MongoDB Atlas.
+    tools = [search_policies, search_market_intel, analyze_portfolio, get_generator_status, web_search]
 
-Provide specific, actionable investment recommendations grounded in data. Always cite your sources. When analyzing the portfolio, use the analyze_portfolio tool. When you need market data or policy information, use the search tools.
+    system_prompt = """You are EnerLeafy, an AI energy market investment advisor at a European energy trading firm. You have access to the trader's live portfolio positions, real-time power generator telemetry, IEA energy policies, vessel tracking data, and market research documents stored in MongoDB Atlas.
+
+Document search uses VoyageAI voyage-finance-2 embeddings (domain-specific finance model) for semantic retrieval. You also have web search for real-time market data.
+
+You use a hybrid search approach:
+1. RAG (Retrieval-Augmented Generation) via MongoDB Atlas Vector Search with voyage-finance-2 embeddings for internal documents and IEA policies
+2. Web search via DuckDuckGo for real-time market data, news, and current events
+
+Provide specific, actionable investment recommendations grounded in data. Always cite your sources. When analyzing the portfolio, use the analyze_portfolio tool. When you need market data or policy information, use the search tools. For current events or real-time prices, use web_search.
 
 Keep responses focused and structured with clear headings. If you recommend trades, explain the rationale."""
 
+    base_url = os.getenv("AZURE_FOUNDRY_ENDPOINT", "").rstrip("/") + "/anthropic"
     llm = ChatAnthropic(
         model="claude-opus-4-6",
         anthropic_api_key=os.getenv("AZURE_FOUNDRY_API_KEY", ""),
-        anthropic_api_url=os.getenv("AZURE_FOUNDRY_ENDPOINT", ""),
+        anthropic_api_url=base_url,
         temperature=0.3,
         max_tokens=2048,
     )

@@ -235,6 +235,8 @@ interface GeneratorContextValue extends GeneratorState {
   setMode: (mode: TelemetryMode) => void;
   start: () => Promise<void>;
   stop: () => Promise<void>;
+  addTrackedPosition: (position: import('./types').Position) => void;
+  removeTrackedPosition: (positionId: string) => void;
 }
 
 const defaultConfig: TelemetryConfig = {
@@ -259,6 +261,8 @@ const GeneratorContext = createContext<GeneratorContextValue>({
   setMode: () => {},
   start: async () => {},
   stop: async () => {},
+  addTrackedPosition: () => {},
+  removeTrackedPosition: () => {},
 });
 
 export const useGenerator = () => useContext(GeneratorContext);
@@ -287,10 +291,15 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
   const cumulativePnlRef = useRef<number>(0);
   const prevTotalPnlRef = useRef<number>(0);
   const exposureTimeSeriesRef = useRef<ExposurePoint[]>([]);
+  const positionsRef = useRef([...mockPositions]);
   const configRef = useRef(config);
   configRef.current = config;
   const liveFeedRef = useRef(liveFeed);
   liveFeedRef.current = liveFeed;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const isSimulatedRef = useRef(isSimulated);
+  isSimulatedRef.current = isSimulated;
 
   const cleanup = useCallback(() => {
     if (eventSourceRef.current) {
@@ -330,6 +339,20 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
       return next.length > MAX_FEED_EVENTS ? next.slice(0, MAX_FEED_EVENTS) : next;
     });
 
+    // Fire-and-forget: push events to MongoDB via backend
+    const dbEvents = newEvents.map((e) => ({
+      timestamp: currentTime.toISOString(),
+      event_type: e.eventType,
+      originator: e.originator,
+      region: e.region,
+      ...e.payload,
+    }));
+    fetch(`${BACKEND}/telemetry/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events: dbEvents }),
+    }).catch(() => { /* backend unavailable — silent */ });
+
     const readings = generateSubstationReadings(elapsed, currentTime);
     setSubstations((prev) =>
       prev.map((sub) => {
@@ -355,12 +378,16 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     });
 
     // Always push portfolio data to dashboard when generator is running
+    // Use positionsRef which tracks user adds/removes
     const jitter = () => (Math.random() - 0.5) * 2;
-    const simPositions = mockPositions.map((p) => ({
+    const currentPositions = positionsRef.current;
+    const simPositions = currentPositions.map((p) => ({
       ...p,
       currentPrice: +(p.currentPrice + jitter()).toFixed(2),
       unrealizedPnl: Math.round(p.unrealizedPnl + jitter() * p.quantity * 0.1),
     }));
+    // Update the ref with new prices so jitter accumulates naturally
+    positionsRef.current = simPositions;
     const totalPnl = simPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
     const portfolioValue = simPositions.reduce((s, p) => s + p.currentPrice * p.quantity, 0);
 
@@ -431,6 +458,16 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     }, 1000);
   }, [appendMetrics]);
 
+  const addTrackedPosition = useCallback((position: import('./types').Position) => {
+    positionsRef.current = [...positionsRef.current, position];
+    liveFeedRef.current.addPosition(position);
+  }, []);
+
+  const removeTrackedPosition = useCallback((positionId: string) => {
+    positionsRef.current = positionsRef.current.filter((p) => p.id !== positionId);
+    liveFeedRef.current.removePosition(positionId);
+  }, []);
+
   const start = useCallback(async () => {
     setIsRunning(true);
     setTimeSeries([]);
@@ -442,35 +479,36 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     setBackendWarning(null);
     startWallTimeRef.current = new Date();
     cumulativePnlRef.current = 0;
+    positionsRef.current = [...mockPositions];
     prevTotalPnlRef.current = mockPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
     exposureTimeSeriesRef.current = [];
 
     // Mark feed as active
-    liveFeed.startFeed();
+    liveFeedRef.current.startFeed();
 
-    if (mode === 'simulation') {
+    if (modeRef.current === 'simulation') {
       setIsSimulated(true);
-      startSimulatedStream(config);
+      startSimulatedStream(configRef.current);
     } else {
       try {
-        await startTelemetry(config);
+        await startTelemetry(configRef.current);
         startRealStream();
       } catch {
         setIsSimulated(true);
         setBackendWarning('Backend unreachable — fell back to simulation.');
-        startSimulatedStream(config);
+        startSimulatedStream(configRef.current);
       }
     }
-  }, [config, mode, startRealStream, startSimulatedStream, liveFeed]);
+  }, [startRealStream, startSimulatedStream]);
 
   const stop = useCallback(async () => {
     cleanup();
-    if (!isSimulated && mode === 'backend') {
+    if (!isSimulatedRef.current && modeRef.current === 'backend') {
       try { await stopTelemetry(); } catch { /* ignore */ }
     }
     setIsRunning(false);
-    liveFeed.stopFeed();
-  }, [cleanup, isSimulated, mode, liveFeed]);
+    liveFeedRef.current.stopFeed();
+  }, [cleanup]);
 
   return (
     <GeneratorContext.Provider
@@ -489,6 +527,8 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
         setMode,
         start,
         stop,
+        addTrackedPosition,
+        removeTrackedPosition,
       }}
     >
       {children}

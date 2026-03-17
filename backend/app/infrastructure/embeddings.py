@@ -11,8 +11,8 @@ import struct
 import httpx
 
 VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings"
-VOYAGE_MODEL = "voyage-3"
-FALLBACK_DIM = 1024  # voyage-3 output dimension
+VOYAGE_MODEL = "voyage-finance-2"
+FALLBACK_DIM = 1024  # voyage-finance-2 output dimension
 
 
 def _get_api_key() -> str:

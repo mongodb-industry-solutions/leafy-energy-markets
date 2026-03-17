@@ -5,6 +5,7 @@ import LeafyGreenProvider from '@leafygreen-ui/leafygreen-provider';
 import EmotionRegistry from './EmotionRegistry';
 import { LiveFeedProvider } from '@/lib/live-feed-context';
 import { GeneratorProvider } from '@/lib/generator-context';
+import { DisruptionProvider } from '@/lib/disruption-context';
 
 interface DarkModeContextValue {
   darkMode: boolean;
@@ -28,7 +29,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         <LeafyGreenProvider darkMode={darkMode}>
           <LiveFeedProvider>
             <GeneratorProvider>
-              {children}
+              <DisruptionProvider>
+                {children}
+              </DisruptionProvider>
             </GeneratorProvider>
           </LiveFeedProvider>
         </LeafyGreenProvider>

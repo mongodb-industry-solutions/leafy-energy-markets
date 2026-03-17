@@ -13,7 +13,7 @@ load_dotenv(os.path.join(_PROJECT_ROOT, 'deploy', '.env'))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import commands, queries, telemetry, search, advisor
+from app.api import commands, queries, telemetry, search, advisor, audit
 from app.infrastructure.db import get_client, close_client
 
 
@@ -41,6 +41,7 @@ app.include_router(queries.router, prefix="/api")
 app.include_router(telemetry.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(advisor.router, prefix="/api")
+app.include_router(audit.router, prefix="/api")
 
 @app.get("/")
 def read_root():

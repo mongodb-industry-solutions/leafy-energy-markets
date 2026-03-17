@@ -6,6 +6,9 @@ import dynamic from 'next/dynamic';
 import { css } from '@emotion/css';
 import { palette } from '@leafygreen-ui/palette';
 import Badge from '@leafygreen-ui/badge';
+import Button from '@leafygreen-ui/button';
+import Icon from '@leafygreen-ui/icon';
+import { Body } from '@leafygreen-ui/typography';
 import { useDarkMode } from '@/components/Providers';
 import PageHeader from '@/components/shared/PageHeader';
 import ChatContainer from '@/components/leafy/ChatContainer';
@@ -23,6 +26,7 @@ import { agenticSteps } from '@/lib/vessel-data';
 import { searchMarketIntelligence, chatWithLeafy, chatWithAdvisor } from '@/lib/api';
 import { useLiveFeed } from '@/lib/live-feed-context';
 import { useGenerator } from '@/lib/generator-context';
+import { useDisruption, DISRUPTION_SCENARIOS } from '@/lib/disruption-context';
 import { positions as mockPositions } from '@/lib/mock-data';
 import type { ChatMessage, AgenticStep, DocumentType } from '@/lib/types';
 
@@ -33,7 +37,6 @@ const VesselTrackingMap = dynamic(
 
 const TANKER_PROMPT_KEYWORD = 'Venezuelan crude';
 
-// Heuristic: short queries with no question mark are likely searches
 function isSearchQuery(text: string): boolean {
   const words = text.trim().split(/\s+/);
   return words.length <= 6 && !text.includes('?');
@@ -44,7 +47,7 @@ function formatSearchResults(docs: { title: string; snippet: string; type: strin
   const lines = docs.map((d, i) =>
     `### ${i + 1}. ${d.title}\n**${d.type}** · ${d.source} · ${d.date}\n\n${d.snippet}\n\n*Relevance: ${(d.score * 100).toFixed(0)}%*`
   );
-  return `Found **${docs.length} documents** matching your query:\n\n${lines.join('\n\n---\n\n')}\n\n*Results powered by MongoDB Atlas Vector Search + VoyageAI embeddings.*`;
+  return `Found **${docs.length} documents** matching your query:\n\n${lines.join('\n\n---\n\n')}\n\n*Results powered by MongoDB Atlas Vector Search + VoyageAI voyage-finance-2 embeddings.*`;
 }
 
 function LeafyContent() {
@@ -53,10 +56,12 @@ function LeafyContent() {
   const isDemo = searchParams?.get('demo') === 'true';
   const liveFeed = useLiveFeed();
   const gen = useGenerator();
+  const disruption = useDisruption();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [activeAgenticSteps, setActiveAgenticSteps] = useState<AgenticStep[] | null>(null);
   const agenticTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const disruptionTriggeredRef = useRef(false);
 
   useEffect(() => {
     if (isDemo && messages.length === 0) {
@@ -69,6 +74,23 @@ function LeafyContent() {
       agenticTimeouts.current.forEach(clearTimeout);
     };
   }, []);
+
+  // Auto-send disruption analysis message when triggered
+  useEffect(() => {
+    if (disruption.active && disruption.disruption && !disruptionTriggeredRef.current) {
+      disruptionTriggeredRef.current = true;
+      const systemMsg: ChatMessage = {
+        id: `msg-${Date.now()}-disruption`,
+        role: 'assistant',
+        content: `**DISRUPTION ALERT: ${disruption.disruption.name}**\n\n${disruption.disruption.description}\n\n**Estimated impact on your portfolio:**\n- Oil prices: +${disruption.disruption.oilPriceImpactPercent}% (supply disruption)\n- Power prices: +${disruption.disruption.powerPriceImpactPercent}% (fuel cost pass-through)\n- Gas prices: +${disruption.disruption.gasPriceImpactPercent}% (Gulf Coast LNG terminal shutdowns)\n\n**Recommendation:** Review GAS and POWER positions immediately. Consider hedging with short-term futures to lock in current rates before spot prices adjust. Venezuelan crude shipments (${vessels()} currently in transit) are delayed indefinitely.\n\n*Ask me about specific impacts on your positions or for detailed supply chain analysis.*`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, systemMsg]);
+    }
+    if (!disruption.active) {
+      disruptionTriggeredRef.current = false;
+    }
+  }, [disruption.active, disruption.disruption]);
 
   const runAgenticFlow = useCallback((userContent: string) => {
     const userMsg: ChatMessage = {
@@ -117,7 +139,6 @@ function LeafyContent() {
   }, []);
 
   const sendMessage = useCallback(async (content: string) => {
-    // Tanker supply forecast — agentic demo flow
     if (content.includes(TANKER_PROMPT_KEYWORD)) {
       runAgenticFlow(content);
       return;
@@ -132,7 +153,6 @@ function LeafyContent() {
     setMessages((prev) => [...prev, userMsg]);
     setIsTyping(true);
 
-    // Build context for the advisor
     const currentPositions = liveFeed.active && liveFeed.positions ? liveFeed.positions : mockPositions;
     const generatorSummaries = gen.substations
       .filter((s) => s.status === 'online')
@@ -150,7 +170,6 @@ function LeafyContent() {
       .map((m) => ({ role: m.role, content: m.content }));
 
     try {
-      // Try advisor endpoint first (LangChain agent)
       try {
         const advisorResp = await chatWithAdvisor(
           content,
@@ -182,7 +201,6 @@ function LeafyContent() {
       }
 
       if (isSearchQuery(content)) {
-        // Hybrid vector search
         const results = await searchMarketIntelligence(content);
         const assistantMsg: ChatMessage = {
           id: `msg-${Date.now()}-search`,
@@ -197,7 +215,6 @@ function LeafyContent() {
         };
         setMessages((prev) => [...prev, assistantMsg]);
       } else {
-        // RAG chat
         const resp = await chatWithLeafy(content);
         const assistantMsg: ChatMessage = {
           id: `msg-${Date.now()}-chat`,
@@ -213,7 +230,6 @@ function LeafyContent() {
         setMessages((prev) => [...prev, assistantMsg]);
       }
     } catch {
-      // Fallback to mock data when backend is unavailable
       const matchingDemo = demoChatMessages.find(
         (m) => m.role === 'user' && content.includes(m.content.slice(0, 30))
       );
@@ -227,7 +243,6 @@ function LeafyContent() {
         }
       }
 
-      // Try mock search docs as fallback
       const q = content.toLowerCase();
       const mockResults = mockSearchDocs.filter(
         (d) =>
@@ -255,7 +270,6 @@ function LeafyContent() {
           },
         ]);
       } else {
-        // Generic fallback
         setMessages((prev) => [
           ...prev,
           {
@@ -267,9 +281,9 @@ Based on the current portfolio data and market conditions, here are the key insi
 
 - **Portfolio Performance**: Your portfolio shows a net P&L of EUR 1,247,830 with 14 active positions across power, gas, carbon, and renewable instruments.
 - **Market Conditions**: European wholesale prices are trending upward, with TTF gas at EUR 34.8/MWh and EUA carbon credits approaching EUR 72/tCO2.
-- **Recommendation**: Consider running a tariff scenario comparison in the Scenario Builder to quantify potential savings from dynamic pricing strategies.
+- **Recommendation**: Consider reviewing your positions in the Dashboard for potential optimization opportunities.
 
-*Connect the backend for live AI-powered responses with MongoDB Atlas Vector Search + VoyageAI.*`,
+*Connect the backend for live AI-powered responses with MongoDB Atlas Vector Search + VoyageAI voyage-finance-2.*`,
             timestamp: new Date().toISOString(),
           },
         ]);
@@ -286,6 +300,13 @@ Based on the current portfolio data and market conditions, here are the key insi
     [sendMessage]
   );
 
+  const handleTriggerDisruption = useCallback((id: string) => {
+    disruption.triggerDisruption(id);
+  }, [disruption]);
+
+  const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
+  const mutedColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
+
   return (
     <div
       className={css`
@@ -296,12 +317,32 @@ Based on the current portfolio data and market conditions, here are the key insi
       `}
     >
       <PageHeader
-        title="Leafy AI"
-        subtitle="AI-powered energy market intelligence — search, chat, and vessel tracking"
+        title="EnerLeafy AI"
+        subtitle="AI-powered energy market intelligence — search, chat, vessel tracking, and disruption analysis"
         action={
-          <div className={css`display: flex; gap: 8px;`}>
+          <div className={css`display: flex; gap: 8px; align-items: center;`}>
             <Badge variant="green">Vector Search</Badge>
-            <Badge variant="blue">VoyageAI</Badge>
+            <Badge variant="blue">voyage-finance-2</Badge>
+            {!disruption.active ? (
+              <Button
+                variant="danger"
+                size="small"
+                darkMode={darkMode}
+                leftGlyph={<Icon glyph="Warning" />}
+                onClick={() => handleTriggerDisruption(DISRUPTION_SCENARIOS[0].id)}
+              >
+                Trigger Disruption
+              </Button>
+            ) : (
+              <Button
+                variant="default"
+                size="small"
+                darkMode={darkMode}
+                onClick={() => disruption.clearDisruption()}
+              >
+                Clear Disruption
+              </Button>
+            )}
           </div>
         }
       />
@@ -327,12 +368,12 @@ Based on the current portfolio data and market conditions, here are the key insi
           <div
             className={css`
               padding: 8px 0;
-              color: ${darkMode ? palette.gray.light1 : palette.gray.dark1};
+              color: ${mutedColor};
               font-size: 13px;
               font-style: italic;
             `}
           >
-            Leafy is searching & thinking...
+            EnerLeafy is searching & thinking...
           </div>
         )}
       </div>
@@ -341,8 +382,48 @@ Based on the current portfolio data and market conditions, here are the key insi
       <div className={css`margin-top: auto;`}>
         <ChatInput onSend={sendMessage} disabled={isTyping} placeholder="Search documents or ask a question..." />
       </div>
+
+      {/* Model & Data Disclaimers */}
+      <div
+        className={css`
+          margin-top: 16px;
+          padding: 12px 16px;
+          border-top: 1px solid ${borderColor};
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        `}
+      >
+        <Body
+          className={css`
+            color: ${mutedColor} !important;
+            font-size: 11px !important;
+            line-height: 1.5 !important;
+          `}
+        >
+          <strong>Models:</strong> Embeddings powered by <a href="https://docs.voyageai.com/docs/embeddings" target="_blank" rel="noopener noreferrer" className={css`color: ${palette.blue.base};`}>VoyageAI voyage-finance-2</a> (domain-specific finance embeddings, 1024 dimensions).
+          LLM agent powered by Claude on Azure AI Foundry via <a href="https://python.langchain.com/" target="_blank" rel="noopener noreferrer" className={css`color: ${palette.blue.base};`}>LangChain</a>.
+          Vector search via MongoDB Atlas.
+        </Body>
+        <Body
+          className={css`
+            color: ${mutedColor} !important;
+            font-size: 11px !important;
+            line-height: 1.5 !important;
+          `}
+        >
+          <strong>IEA/IRENA Data Disclaimer:</strong> This platform uses data from the IEA/IRENA Policies and Measures Database (PAMS).
+          The IEA data is subject to the <a href="https://www.iea.org/terms/terms-of-use-for-the-policies-and-measures-databases-pams" target="_blank" rel="noopener noreferrer" className={css`color: ${palette.blue.base};`}>IEA Terms of Use for PAMS databases</a>.
+          The IEA is not responsible for any analysis, interpretation, or conclusions derived from the data.
+          Data sourced from IEA/IRENA joint database, filtered for EU/EEA in-force energy policies.
+        </Body>
+      </div>
     </div>
   );
+}
+
+function vessels(): string {
+  return '5 tankers';
 }
 
 export default function LeafyPage() {

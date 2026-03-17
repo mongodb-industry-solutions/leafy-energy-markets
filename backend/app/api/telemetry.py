@@ -255,6 +255,47 @@ async def stream_telemetry():
     )
 
 
+class EventBatch(BaseModel):
+    events: List[dict]
+
+
+@router.post("/telemetry/events")
+async def ingest_events(batch: EventBatch):
+    """Ingest a batch of telemetry events from the frontend simulation into MongoDB."""
+    if not batch.events:
+        return {"inserted": 0}
+    try:
+        from app.infrastructure.db import get_client
+        db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+        client = get_client()
+        db = client[db_name]
+
+        # Create time-series collection if needed
+        try:
+            db.create_collection(
+                "telemetry_events",
+                timeseries={
+                    "timeField": "timestamp",
+                    "metaField": "event_type",
+                    "granularity": "seconds",
+                },
+            )
+        except (CollectionInvalid, OperationFailure):
+            pass
+
+        coll = db["telemetry_events"]
+        # Add timestamps to events that don't have them
+        for evt in batch.events:
+            if "timestamp" not in evt:
+                evt["timestamp"] = datetime.now(timezone.utc)
+            elif isinstance(evt["timestamp"], str):
+                evt["timestamp"] = datetime.fromisoformat(evt["timestamp"].replace("Z", "+00:00"))
+        coll.insert_many(batch.events)
+        return {"inserted": len(batch.events)}
+    except Exception as e:
+        return {"inserted": 0, "error": str(e)}
+
+
 @router.get("/telemetry/status")
 async def telemetry_status():
     return {

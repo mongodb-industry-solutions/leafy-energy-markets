@@ -132,3 +132,45 @@ export async function chatWithAdvisor(
   if (!res.ok) throw new Error(`Advisor failed: ${res.statusText}`);
   return res.json();
 }
+
+// ── Audit Analysis (LLM-powered compliance) ──────────────
+
+export interface AuditEventInput {
+  streamId: string;
+  streamType: string;
+  version: number;
+  eventType: string;
+  timestamp: string;
+  payload: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}
+
+export interface AuditAnalysisResponse {
+  analysis: string;
+  sources: { title: string; type: string; snippet: string }[];
+  tool_calls: string[];
+}
+
+export async function analyzeAuditScenario(
+  scenarioId: string,
+  scenarioTitle: string,
+  regulation: string,
+  description: string,
+  events: AuditEventInput[],
+  currentVersion: number,
+): Promise<AuditAnalysisResponse> {
+  const res = await fetch(`${BASE}/audit/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      scenario_id: scenarioId,
+      scenario_title: scenarioTitle,
+      regulation,
+      description,
+      events,
+      current_version: currentVersion,
+    }),
+  });
+  if (!res.ok) throw new Error(`Audit analysis failed: ${res.statusText}`);
+  return res.json();
+}

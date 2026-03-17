@@ -23,44 +23,19 @@ const flicker = keyframes`
   97% { opacity: 1; }
 `;
 
-const LEAFY_LOGO = `
-:::        :::::::::: ::::::::  ::::::::::::::   :::
-:+:        :+:       :+:    :+::+:        :+:   :+:
-+:+        +:+       +:+    +:++:+         +:+ +:+
-+#+        +#++:++#  +#++:++#+++#++:▓+#     +#++:
-+#+        +#+       +#+    +#++#+          +#+
-#+#        #+#       #+#    #+##+#         #+#
-########## ########## ###    ########     ###
-`.trimEnd();
+const glow = keyframes`
+  0%, 100% { text-shadow: 0 0 30px rgba(0,237,100,0.7), 0 0 60px rgba(0,237,100,0.4), 0 0 120px rgba(0,237,100,0.2); }
+  50% { text-shadow: 0 0 50px rgba(0,237,100,1), 0 0 100px rgba(0,237,100,0.6), 0 0 160px rgba(0,237,100,0.3); }
+`;
 
-const ENERGY_LOGO = `
-:::::::::: ::::    ::: :::::::::: :::::::::   ::::::::  :::   :::
-:+:        :+:+:   :+: :+:        :+:    :+: :+:    :+: :+:   :+:
-+:+        :+:+:+  +:+ +:+        +:+    +:+ +:+        +:+   +:+
-+#++:++#   +#+ +:+ +#+ +#++:++#   +#++:++#:  :#:         :#+#:#
-+#+        +#+  +#+#+# +#+        +#+    +#+ +#+   :::▓    +#+
-#+#        #+#   #+#+# #+#        #+#    #+# #+#    #+#    #+#
-########## ###    #### ########## ###    ###  ########     ###
-`.trimEnd();
+const wobble = keyframes`
+  0%, 100% { transform: rotate(-2deg) scale(1); }
+  25% { transform: rotate(1deg) scale(1.02); }
+  50% { transform: rotate(-1deg) scale(1); }
+  75% { transform: rotate(2deg) scale(1.01); }
+`;
 
-const MARKETS_LOGO = `
-::::    ::::      :::     :::::::::  :::    ::: :::::::::: ::::::::::: ::::::::
-+:+:+: :+:+:+   :+: :+:   :+:    :+: :+:   :+: :+:            :+:    :+:    :+:
-+:+ +:+:+ +:+  +:+   +:+  +:+    +:+ +:+  +:+  +:+            +:+    +:+
-+#+  +:+  +#+ +#++:++#++: +#++:++#:  +#++:++   +#++:++#       +#+    +#++:++#++
-+#+       +#+ +#+     +#+ +#+    +#+ +#+  +#+  +#+            +#+           +#+
-#+#       #+# #+#     #+# #+#    #+# #+#   #+# #+#            #+#    #+#    #+#
-###       ### ###     ### ###    ### ###    ### ##########     ###     ########
-`.trimEnd();
-
-const NAV_SECTIONS = [
-  { label: 'DASHBOARD', href: '/dashboard', icon: '[]' },
-  { label: 'TELEMETRY', href: '/telemetry', icon: '~>' },
-  { label: 'LEAFY AI', href: '/leafy', icon: '*>' },
-  { label: 'EVENTS', href: '/audit', icon: '>>' },
-  { label: 'CQRS', href: '/cqrs', icon: '{}' },
-  { label: 'SCENARIOS', href: '/scenarios', icon: '==' },
-];
+const MONITOR_IMAGE = '/img/658212a6662a0375785ec77751b4b582.jpg';
 
 const TICKER_ITEMS = [
   'DE BASE Q2 78.90 +1.2%',
@@ -100,6 +75,7 @@ export default function Home() {
           border-bottom: 3px solid #00ED64;
           padding: 12px 0;
           background: #000;
+          flex-shrink: 0;
         `}
       >
         <div
@@ -126,11 +102,11 @@ export default function Home() {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 24px 24px;
-          gap: 32px;
+          padding: 16px 24px;
+          gap: 16px;
         `}
       >
-        {/* ASCII logo */}
+        {/* WordArt Logo — BIG and ridiculous */}
         <div
           className={css`
             text-align: center;
@@ -139,112 +115,150 @@ export default function Home() {
             display: flex;
             flex-direction: column;
             align-items: center;
+            animation: ${wobble} 6s ease-in-out infinite;
           `}
         >
-          <pre
+          <h1
             className={css`
-              font-size: clamp(8px, 1.6vw, 18px);
-              line-height: 1.2;
-              color: #00ED64;
-              margin-bottom: 4px;
-              text-shadow: 0 0 10px rgba(0, 237, 100, 0.5);
+              font-size: clamp(60px, 14vw, 160px);
+              font-weight: 900;
+              letter-spacing: 6px;
+              line-height: 0.9;
+              margin: 0;
+              color: transparent;
+              background: linear-gradient(
+                180deg,
+                #AAFF00 0%,
+                #00FF6A 20%,
+                #00ED64 40%,
+                #00C853 60%,
+                #FFD700 80%,
+                #00FF6A 100%
+              );
+              background-size: 100% 200%;
+              -webkit-background-clip: text;
+              background-clip: text;
+              -webkit-text-stroke: 2px rgba(0, 237, 100, 0.4);
+              filter: drop-shadow(0 4px 8px rgba(0, 237, 100, 0.6)) drop-shadow(0 0 40px rgba(0, 237, 100, 0.3));
+              animation: ${glow} 2s ease-in-out infinite;
+              font-family: 'Impact', 'Arial Black', sans-serif;
+              text-transform: uppercase;
+              transform: skewY(-2deg);
             `}
           >
-            {LEAFY_LOGO}
-          </pre>
-          <pre
+            Leafy
+          </h1>
+          <h1
             className={css`
-              font-size: clamp(6px, 1.2vw, 14px);
-              line-height: 1.2;
-              color: #00ED64;
-              opacity: 0.8;
-              margin-bottom: 4px;
-              text-shadow: 0 0 8px rgba(0, 237, 100, 0.35);
+              font-size: clamp(50px, 11vw, 130px);
+              font-weight: 900;
+              letter-spacing: 8px;
+              line-height: 0.9;
+              margin: 0;
+              color: transparent;
+              background: linear-gradient(
+                180deg,
+                #00FF6A 0%,
+                #00ED64 30%,
+                #00C853 50%,
+                #FFD700 70%,
+                #00FF6A 100%
+              );
+              background-size: 100% 200%;
+              -webkit-background-clip: text;
+              background-clip: text;
+              -webkit-text-stroke: 2px rgba(0, 237, 100, 0.3);
+              filter: drop-shadow(0 4px 8px rgba(0, 237, 100, 0.5)) drop-shadow(0 0 30px rgba(0, 237, 100, 0.25));
+              animation: ${glow} 2s ease-in-out infinite;
+              animation-delay: 0.3s;
+              font-family: 'Impact', 'Arial Black', sans-serif;
+              text-transform: uppercase;
+              font-style: italic;
+              transform: skewY(-2deg);
             `}
           >
-            {ENERGY_LOGO}
-          </pre>
-          <pre
+            Energy
+          </h1>
+          <h1
             className={css`
-              font-size: clamp(5px, 1vw, 12px);
-              line-height: 1.2;
-              color: #00ED64;
-              opacity: 0.6;
-              text-shadow: 0 0 6px rgba(0, 237, 100, 0.25);
+              font-size: clamp(40px, 9vw, 110px);
+              font-weight: 900;
+              letter-spacing: 14px;
+              line-height: 0.9;
+              margin: 0;
+              color: transparent;
+              background: linear-gradient(
+                180deg,
+                #FFD700 0%,
+                #00FF6A 30%,
+                #00ED64 50%,
+                #00C853 70%,
+                #AAFF00 100%
+              );
+              background-size: 100% 200%;
+              -webkit-background-clip: text;
+              background-clip: text;
+              -webkit-text-stroke: 2px rgba(0, 237, 100, 0.2);
+              filter: drop-shadow(0 4px 8px rgba(0, 237, 100, 0.4)) drop-shadow(0 0 25px rgba(0, 237, 100, 0.2));
+              animation: ${glow} 2s ease-in-out infinite;
+              animation-delay: 0.6s;
+              font-family: 'Impact', 'Arial Black', sans-serif;
+              text-transform: uppercase;
+              transform: skewY(-2deg);
             `}
           >
-            {MARKETS_LOGO}
-          </pre>
+            Markets
+          </h1>
           <div
             className={css`
-              font-size: 14px;
+              font-size: 13px;
               letter-spacing: 6px;
               text-transform: uppercase;
               color: #00ED64;
               opacity: 0.5;
-              margin-top: 16px;
+              margin-top: 10px;
             `}
           >
             MONGODB ATLAS &middot; EVENT SOURCING &middot; CQRS
           </div>
         </div>
 
-        {/* Navigation grid */}
+        {/* Monitor the situation — BIG */}
         <div
           className={css`
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 4px;
-            max-width: 720px;
-            width: 100%;
+            border: 4px solid #00ED64;
+            padding: 6px;
+            max-width: 800px;
+            width: 90%;
+            opacity: ${mounted ? 1 : 0};
+            transition: opacity 0.8s ease 0.3s;
+            box-shadow: 0 0 30px rgba(0, 237, 100, 0.2), inset 0 0 20px rgba(0, 237, 100, 0.05);
           `}
         >
-          {NAV_SECTIONS.map((section) => (
-            <Link key={section.href} href={section.href} className={css`text-decoration: none;`}>
-              <div
-                className={css`
-                  border: 3px solid #00ED64;
-                  padding: 24px 16px;
-                  text-align: center;
-                  cursor: pointer;
-                  transition: all 0.1s ease;
-                  background: #000;
-                  &:hover {
-                    background: #00ED64;
-                    color: #000;
-                  }
-                  &:hover span {
-                    color: #000;
-                  }
-                  &:active {
-                    transform: translate(2px, 2px);
-                  }
-                `}
-              >
-                <span
-                  className={css`
-                    display: block;
-                    font-size: 20px;
-                    margin-bottom: 8px;
-                    color: #00ED64;
-                  `}
-                >
-                  {section.icon}
-                </span>
-                <span
-                  className={css`
-                    display: block;
-                    font-size: 13px;
-                    font-weight: 700;
-                    letter-spacing: 3px;
-                    color: #00ED64;
-                  `}
-                >
-                  {section.label}
-                </span>
-              </div>
-            </Link>
-          ))}
+          <img
+            src={MONITOR_IMAGE}
+            alt="We'll monitor the situation"
+            className={css`
+              width: 100%;
+              height: auto;
+              display: block;
+              filter: brightness(0.95) saturate(0.8);
+            `}
+          />
+          <div
+            className={css`
+              text-align: center;
+              font-size: clamp(16px, 3vw, 28px);
+              letter-spacing: 6px;
+              padding: 14px 0 10px;
+              color: #00ED64;
+              font-weight: 900;
+              text-transform: uppercase;
+              text-shadow: 0 0 20px rgba(0, 237, 100, 0.5);
+            `}
+          >
+            &gt; We&apos;ll monitor the situation
+          </div>
         </div>
 
         {/* Enter button */}
@@ -252,18 +266,20 @@ export default function Home() {
           <div
             className={css`
               border: 4px solid #00ED64;
-              padding: 16px 64px;
-              font-size: 20px;
+              padding: 18px 80px;
+              font-size: 24px;
               font-weight: 900;
-              letter-spacing: 8px;
+              letter-spacing: 10px;
               text-transform: uppercase;
               color: #00ED64;
               cursor: pointer;
               position: relative;
               background: #000;
+              box-shadow: 0 0 20px rgba(0, 237, 100, 0.15);
               &:hover {
                 background: #00ED64;
                 color: #000;
+                box-shadow: 0 0 40px rgba(0, 237, 100, 0.4);
               }
               &:active {
                 transform: translate(3px, 3px);
@@ -274,7 +290,7 @@ export default function Home() {
             <span
               className={css`
                 display: inline-block;
-                width: 12px;
+                width: 14px;
                 margin-left: 8px;
                 animation: ${blink} 1s step-end infinite;
               `}
@@ -308,6 +324,7 @@ export default function Home() {
           letter-spacing: 4px;
           color: #00ED64;
           opacity: 0.3;
+          flex-shrink: 0;
         `}
       >
         {'>'} SYS.READY {'>'} ALL.MARKETS.ONLINE {'>'} LATENCY.OK

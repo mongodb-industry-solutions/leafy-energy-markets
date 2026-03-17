@@ -207,6 +207,6 @@ def chat_with_leafy(req: ChatRequest, client=Depends(get_db)):
 
 ---
 
-*This response was generated using MongoDB Atlas Vector Search with VoyageAI embeddings. {len(docs)} document(s) retrieved via hybrid semantic + keyword search.*"""
+*This response was generated using MongoDB Atlas Vector Search with VoyageAI voyage-finance-2 embeddings. {len(docs)} document(s) retrieved via hybrid semantic + keyword search.*"""
 
     return ChatResponse(response=response_text, sources=sources)

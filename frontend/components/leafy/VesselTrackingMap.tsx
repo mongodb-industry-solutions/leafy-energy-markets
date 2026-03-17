@@ -16,6 +16,7 @@ import {
   interpolateRoute,
   computeHeading,
 } from '@/lib/vessel-data';
+import { useDisruption } from '@/lib/disruption-context';
 import type { Vessel } from '@/lib/types';
 
 const pulse = keyframes`
@@ -57,10 +58,26 @@ function createVesselIcon(heading: number, color: string): L.DivIcon {
 
 export default function VesselTrackingMap() {
   const { darkMode } = useDarkMode();
+  const { active: disruptionActive, disruption } = useDisruption();
   const [vessels, setVessels] = useState<Vessel[]>(mockVessels);
 
-  // Real-time vessel animation
+  // Real-time vessel animation — freeze when disruption is active
   useEffect(() => {
+    if (disruptionActive && disruption?.vesselsAffected) {
+      // Freeze all vessels to at-anchor status
+      setVessels((prev) =>
+        prev.map((v) => ({ ...v, status: 'at-anchor' as const, speedKnots: 0 }))
+      );
+      return;
+    }
+    // Restore speeds when disruption clears
+    setVessels((prev) =>
+      prev.map((v, i) => ({
+        ...v,
+        status: mockVessels[i]?.status ?? v.status,
+        speedKnots: mockVessels[i]?.speedKnots ?? v.speedKnots,
+      }))
+    );
     const interval = setInterval(() => {
       setVessels((prev) =>
         prev.map((v) => {
@@ -74,7 +91,7 @@ export default function VesselTrackingMap() {
       );
     }, ANIM_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [disruptionActive, disruption]);
 
   const routeLatLngs = useMemo(
     () => routeWaypoints.map((wp): [number, number] => [wp.lat, wp.lng]),
@@ -105,6 +122,32 @@ export default function VesselTrackingMap() {
           LIVE
         </div>
       </div>
+
+      {/* Disruption Banner */}
+      {disruptionActive && disruption && (
+        <div
+          className={css`
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            background: rgba(207, 74, 34, 0.15);
+            border: 1px solid ${palette.red.base};
+            color: ${palette.red.base};
+            font-size: 13px;
+            font-weight: 600;
+            animation: pulse 1.5s ease-in-out infinite;
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.7; }
+            }
+          `}
+        >
+          DISRUPTION ACTIVE — {disruption.name}: All vessel traffic suspended
+        </div>
+      )}
 
       {/* Leaflet Map */}
       <div

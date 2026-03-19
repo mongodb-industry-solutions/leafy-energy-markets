@@ -1,4 +1,4 @@
-"""Hybrid vector search + RAG chat endpoints."""
+"""Hybrid vector search endpoint."""
 
 import os
 from typing import Optional
@@ -8,12 +8,12 @@ from pydantic import BaseModel, Field
 
 from app.infrastructure.db import get_db
 from app.infrastructure.embeddings import embed_query
+from app.infrastructure.search import vector_search, text_search
 
 router = APIRouter()
 
 DB_NAME = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
 COLLECTION = "documents"
-VECTOR_INDEX = "vector_index"
 
 
 # ── Request / Response models ─────────────────────────────
@@ -38,64 +38,7 @@ class SearchResponse(BaseModel):
     results: list[SearchResult]
 
 
-class ChatRequest(BaseModel):
-    message: str
-    history: list[dict] = Field(default_factory=list)
-
-
-class SourceRef(BaseModel):
-    title: str
-    type: str
-    snippet: str
-
-
-class ChatResponse(BaseModel):
-    response: str
-    sources: list[SourceRef]
-
-
 # ── Hybrid search ─────────────────────────────────────────
-
-def _vector_search(coll, query_embedding: list[float], limit: int, type_filter: Optional[str] = None):
-    """Run $vectorSearch aggregation pipeline."""
-    pipeline = [
-        {
-            "$vectorSearch": {
-                "index": VECTOR_INDEX,
-                "path": "embedding",
-                "queryVector": query_embedding,
-                "numCandidates": limit * 10,
-                "limit": limit,
-            }
-        },
-        {
-            "$addFields": {
-                "vs_score": {"$meta": "vectorSearchScore"},
-            }
-        },
-        {
-            "$project": {
-                "embedding": 0,
-            }
-        },
-    ]
-    if type_filter:
-        pipeline.insert(1, {"$match": {"type": type_filter}})
-    return list(coll.aggregate(pipeline))
-
-
-def _text_search(coll, query: str, limit: int, type_filter: Optional[str] = None):
-    """Fallback keyword search using regex (works without Atlas Search index)."""
-    filter_doc: dict = {
-        "$or": [
-            {"title": {"$regex": query, "$options": "i"}},
-            {"snippet": {"$regex": query, "$options": "i"}},
-        ]
-    }
-    if type_filter:
-        filter_doc["type"] = type_filter
-    return list(coll.find(filter_doc, {"embedding": 0}).limit(limit))
-
 
 def _reciprocal_rank_fusion(
     vector_results: list[dict],
@@ -126,7 +69,7 @@ def _reciprocal_rank_fusion(
     return results
 
 
-# ── Endpoints ─────────────────────────────────────────────
+# ── Endpoint ──────────────────────────────────────────────
 
 @router.post("/search", response_model=SearchResponse)
 def search_documents(req: SearchRequest, client=Depends(get_db)):
@@ -143,11 +86,11 @@ def search_documents(req: SearchRequest, client=Depends(get_db)):
     vector_results = []
     if query_embedding:
         try:
-            vector_results = _vector_search(coll, query_embedding, req.limit, req.type_filter)
+            vector_results = vector_search(coll, query_embedding, req.limit, req.type_filter)
         except Exception:
             pass
 
-    text_results = _text_search(coll, req.query, req.limit, req.type_filter)
+    text_results = text_search(coll, req.query, req.limit, req.type_filter)
 
     # Merge with RRF
     if vector_results:
@@ -171,42 +114,3 @@ def search_documents(req: SearchRequest, client=Depends(get_db)):
             )
         )
     return SearchResponse(results=results)
-
-
-@router.post("/chat", response_model=ChatResponse)
-def chat_with_leafy(req: ChatRequest, client=Depends(get_db)):
-    db = client[DB_NAME]
-    coll = db[COLLECTION]
-
-    # Retrieve relevant documents via vector search
-    try:
-        query_embedding = embed_query(req.message)
-        docs = _vector_search(coll, query_embedding, limit=3)
-    except Exception:
-        docs = _text_search(coll, req.message, limit=3)
-
-    sources = [
-        SourceRef(
-            title=d.get("title", ""),
-            type=d.get("type", ""),
-            snippet=d.get("snippet", ""),
-        )
-        for d in docs
-    ]
-
-    # Build context-augmented response
-    context_parts = []
-    for d in docs:
-        context_parts.append(f"**{d.get('title', '')}** ({d.get('source', '')})\n{d.get('snippet', '')}")
-
-    context_block = "\n\n".join(context_parts)
-
-    response_text = f"""Based on the latest market intelligence, here is what I found relevant to your question:
-
-{context_block}
-
----
-
-*This response was generated using MongoDB Atlas Vector Search with VoyageAI voyage-finance-2 embeddings. {len(docs)} document(s) retrieved via hybrid semantic + keyword search.*"""
-
-    return ChatResponse(response=response_text, sources=sources)

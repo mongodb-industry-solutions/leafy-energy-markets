@@ -23,7 +23,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         display: flex;
         gap: 12px;
         align-items: flex-start;
-        max-width: 85%;
+        max-width: 100%;
         ${isUser ? 'margin-left: auto; flex-direction: row-reverse;' : ''}
       `}
     >

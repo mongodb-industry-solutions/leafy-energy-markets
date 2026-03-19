@@ -197,142 +197,24 @@ export const searchDocuments: SearchDocument[] = [
 
 export const suggestedPrompts: SuggestedPrompt[] = [
   {
-    title: 'Portfolio Recommendations',
-    description: 'What positions should I adjust based on current generator output?',
-    prompt: 'What positions should I adjust based on current generator output? Analyze my portfolio and suggest trades.',
+    title: 'EU Policy Impact',
+    description: 'Search IEA policies and analyze impact on my portfolio',
+    prompt: 'Search for the latest EU energy policies from the IEA database and analyze how they impact my current portfolio positions. Give me specific trade recommendations.',
   },
   {
-    title: 'Policy Impact',
-    description: 'How do recent EU policies affect my portfolio?',
-    prompt: 'How do recent EU energy policies affect my portfolio? Search for relevant IEA policies and analyze the impact on my current positions.',
+    title: 'Market Analysis',
+    description: 'Analyze market conditions and recommend trades',
+    prompt: 'Analyze my current portfolio positions, check current market conditions via web search, and recommend specific trades I should make today with entry prices and rationale.',
   },
   {
-    title: 'Market Conditions',
-    description: 'Recommend trades based on market conditions',
-    prompt: 'Recommend trades based on current market conditions and my portfolio exposure. Consider vessel arrivals and generator output.',
+    title: 'Risk Assessment',
+    description: 'Identify portfolio risks and hedging strategies',
+    prompt: 'Assess the key risks in my energy portfolio including concentration risk, regulatory risk, and market exposure. Suggest specific hedging strategies.',
   },
   {
-    title: 'Portfolio Risk Summary',
-    description: 'What are the key risks in my current portfolio?',
-    prompt: 'Summarize the key risks in my current energy portfolio, including market risk, ESG transition risk, and concentration risk.',
-  },
-  {
-    title: 'Tanker Supply Forecast',
-    description: 'How will incoming Venezuelan crude shipments affect Gulf Coast prices?',
+    title: 'Venezuelan Crude Supply',
+    description: 'Analyze tanker fleet impact on Gulf Coast prices',
     prompt: 'How will incoming Venezuelan crude shipments affect Gulf Coast prices? Analyze the current tanker fleet in transit from Amuay to Corpus Christi and provide price forecasts and trade recommendations.',
   },
 ];
 
-export const demoChatMessages: ChatMessage[] = [
-  {
-    id: 'msg-001',
-    role: 'user',
-    content: 'Explain why the dynamic tariff scenario with time-of-use pricing and load shifting saves approximately 12% compared to the flat tariff baseline for Portfolio PORTFOLIO-123 in the NORTH region.',
-    timestamp: '2026-02-06T16:00:00Z',
-  },
-  {
-    id: 'msg-002',
-    role: 'assistant' as const,
-    content: `The dynamic tariff scenario achieves approximately **12% cost savings** over the flat tariff baseline through two complementary mechanisms:
-
-### 1. Time-of-Use Price Arbitrage
-The flat tariff applies a uniform rate of **EUR 74.2/MWh** across all hours. The dynamic tariff exploits the natural price curve of the NORTH region wholesale market:
-- **Off-peak hours (22:00–06:00):** Prices drop to EUR 45–55/MWh due to low demand and steady wind generation
-- **Peak hours (08:00–20:00):** Prices rise to EUR 85–110/MWh driven by industrial demand
-
-By shifting ~30% of flexible load from peak to off-peak windows, the portfolio captures an average spread of **EUR 25/MWh** on shifted volume.
-
-### 2. Load Shifting Optimization
-The scenario uses predictive load modeling (based on historical meter readings) to identify **flexible demand** that can be rescheduled without operational impact:
-- EV fleet charging: shifted from 17:00–21:00 to 01:00–05:00
-- Thermal storage pre-charging: shifted from 07:00–09:00 to 03:00–06:00
-- Industrial processes with 4h flexibility window
-
-### Quantified Impact
-| Metric | Baseline | Dynamic | Delta |
-|--------|----------|---------|-------|
-| Total Cost | EUR ${baselineResult.totalCost.toLocaleString()} | EUR ${dynamicResult.totalCost.toLocaleString()} | -${scenarioComparison.savingsPercent}% |
-| Avg Price | EUR 74.2/MWh | EUR 65.3/MWh | -EUR 8.9/MWh |
-
-The savings are particularly strong in this period because wind generation in the NORTH region is **forecast above seasonal average**, depressing overnight prices further.`,
-    timestamp: '2026-02-06T16:00:05Z',
-    sources: [
-      {
-        title: 'European Power Market Outlook Q2 2026',
-        type: 'Research',
-        snippet: 'Wholesale electricity prices across Central Europe expected to rise 8-12% in Q2...',
-      },
-      {
-        title: 'Wind Farm Asset Performance — Netherlands Cluster',
-        type: 'Asset',
-        snippet: 'NL offshore wind cluster achieved 42% capacity factor in January...',
-      },
-    ],
-  },
-];
-
-export const agenticResponseMessage: ChatMessage = {
-  id: 'msg-agentic-resp',
-  role: 'assistant',
-  content: `Based on my analysis of **5 Venezuelan crude tankers** currently in transit from Amuay to Corpus Christi, carrying a combined **3.15 million barrels**, here is the supply impact assessment and trade recommendations for the BRP.
-
-### Fleet Summary
-
-| Vessel | Cargo | Volume | ETA | Status |
-|--------|-------|--------|-----|--------|
-| PDVSA Patriota | Merey 16 | 600k bbl | Feb 18 | Underway (15%) |
-| Falcon Tide | Mesa 30 + Santa Barbara | 750k bbl | Feb 16 | Underway (35%) |
-| Caribbean Sun | Hamaca Heavy | 500k bbl | Feb 15 | Underway (55%) |
-| Gulf Pioneer | Merey 16 + Boscan | 900k bbl | Feb 13 | Underway (78%) |
-| Rio Orinoco | Mesa 30 | 400k bbl | Feb 12 | Underway (92%) |
-
-### Price Impact Analysis
-
-The arrival of **3.15M barrels of heavy/medium sour crude** into Corpus Christi over the next 7 days will create several pricing pressures:
-
-- **WTI-Maya spread widening**: The influx of heavy sour barrels competes directly with Maya crude imports from Mexico. Expect the WTI-Maya differential to widen by **$0.80–1.20/bbl** as Gulf Coast refiners have ample heavy feedstock.
-- **Mars differential pressure**: Mars crude (GC sour benchmark) will face downward pressure as Venezuelan Merey and Boscan cargoes offer comparable sulfur/API profiles at discounted terms.
-- **Crack spread support**: Complex refiners running heavier slates will benefit from wider crude-product margins. GC 3-2-1 crack spread should strengthen as cheaper heavy feedstock improves refinery economics.
-
-### 7-Day Price Forecast
-
-| Benchmark | Current | +3 Days | +7 Days | Direction |
-|-----------|---------|---------|---------|-----------|
-| WTI (CL1) | $78.40 | $78.10 | $77.60 | Slight bearish |
-| Mars (GC Sour) | $76.20 | $75.40 | $74.80 | Bearish |
-| Maya (MEX) | $70.50 | $69.80 | $69.20 | Bearish |
-| LLS (Light Sweet) | $80.10 | $80.50 | $81.20 | Bullish |
-| GC 3-2-1 Crack | $28.40 | $29.10 | $30.20 | Bullish |
-
-### Recommended BRP Trades
-
-1. **Sell Mars-WTI spread** (entry: -$2.20, target: -$3.00) — Mars will underperform WTI as heavy sour supply floods GC market
-2. **Buy GC 3-2-1 crack spread** (entry: $28.40, target: $30.50) — Cheap heavy feedstock supports complex refinery margins
-3. **Buy LLS-WTI spread** (entry: +$1.70, target: +$2.80) — Light sweet premiums will widen as heavy crude displaces light barrels at refineries
-4. **Sell Maya futures (Apr)** (entry: $70.50, target: $68.80) — Direct competition from Venezuelan heavy grades depresses Maya pricing
-
-*Confidence: High — based on AIS vessel tracking, historical supply-price correlation, and refinery utilization data.*`,
-  timestamp: '2026-02-12T10:05:00Z',
-  sources: [
-    {
-      title: 'S&P Global Commodities at Sea — Venezuela Tracker',
-      type: 'Maritime',
-      snippet: 'Real-time AIS tracking of Venezuelan crude exports. 5 VLCCs currently en route to USGC with 3.15M bbl combined cargo.',
-    },
-    {
-      title: 'Corpus Christi Port Authority — Vessel Schedule',
-      type: 'Maritime',
-      snippet: 'Scheduled arrivals Feb 12–18: 3 tankers with Venezuelan crude manifests, berth allocation confirmed for CCRA Terminal.',
-    },
-    {
-      title: 'Gulf Coast Crude Differential Analysis — Q1 2026',
-      type: 'Research',
-      snippet: 'Heavy sour crude discounts widened 15% QoQ as Venezuelan supply resumed under OFAC general license framework.',
-    },
-    {
-      title: 'Corpus Christi Refinery Complex — Utilization Report',
-      type: 'Asset',
-      snippet: 'CCRA complex running at 94% utilization. Coker units processing 180k bpd of heavy sour feedstock. Capacity for additional 40k bpd.',
-    },
-  ],
-};

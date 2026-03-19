@@ -10,3 +10,5 @@ langchain-anthropic
 langchain-core
 langgraph
 duckduckgo-search
+langchain-mcp-adapters
+langgraph-checkpoint-mongodb

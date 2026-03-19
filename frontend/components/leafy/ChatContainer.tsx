@@ -25,6 +25,9 @@ export default function ChatContainer({ messages }: ChatContainerProps) {
         display: flex;
         flex-direction: column;
         gap: 20px;
+        max-width: 768px;
+        margin: 0 auto;
+        width: 100%;
       `}
     >
       {messages.map((msg) => (

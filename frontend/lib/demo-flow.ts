@@ -1,7 +1,6 @@
 import { createTariffScenario } from './api';
 import {
   scenarioComparison,
-  demoChatMessages,
   baselineResult,
   dynamicResult,
 } from './mock-data';
@@ -79,7 +78,7 @@ export async function runDemoFlow(
     baselineScenarioId: baselineId,
     dynamicScenarioId: dynamicId,
     comparison,
-    chatMessages: demoChatMessages,
+    chatMessages: [],
     isRunning: false,
     error: null,
   };

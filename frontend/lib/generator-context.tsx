@@ -275,7 +275,7 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<TelemetryConfig>(defaultConfig);
   const [isRunning, setIsRunning] = useState(false);
   const [isSimulated, setIsSimulated] = useState(false);
-  const [mode, setMode] = useState<TelemetryMode>('simulation');
+  const [mode, setMode] = useState<TelemetryMode>('backend');
   const [backendWarning, setBackendWarning] = useState<string | null>(null);
   const [latestMetrics, setLatestMetrics] = useState<TelemetryMetrics | null>(null);
   const [timeSeries, setTimeSeries] = useState<TelemetryTimeSeriesPoint[]>([]);
@@ -486,18 +486,14 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     // Mark feed as active
     liveFeedRef.current.startFeed();
 
-    if (modeRef.current === 'simulation') {
+    // Always try backend first; fall back to simulation if unreachable
+    try {
+      await startTelemetry(configRef.current);
+      startRealStream();
+    } catch {
       setIsSimulated(true);
+      setBackendWarning('Backend unreachable — running in simulation mode. Events pushed to DB when available.');
       startSimulatedStream(configRef.current);
-    } else {
-      try {
-        await startTelemetry(configRef.current);
-        startRealStream();
-      } catch {
-        setIsSimulated(true);
-        setBackendWarning('Backend unreachable — fell back to simulation.');
-        startSimulatedStream(configRef.current);
-      }
     }
   }, [startRealStream, startSimulatedStream]);
 

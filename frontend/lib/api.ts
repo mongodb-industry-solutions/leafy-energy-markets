@@ -53,54 +53,6 @@ export async function getTelemetryStatus(): Promise<{ running: boolean }> {
   return res.json();
 }
 
-// ── Search / RAG ────────────────────────────────────────────
-
-export interface SearchResultItem {
-  doc_id: string;
-  title: string;
-  snippet: string;
-  type: string;
-  date: string;
-  source: string;
-  score: number;
-}
-
-export interface ChatResponseItem {
-  response: string;
-  sources: { title: string; type: string; snippet: string }[];
-}
-
-export async function searchMarketIntelligence(
-  query: string,
-  typeFilter?: string,
-  limit = 5,
-): Promise<SearchResultItem[]> {
-  const body: Record<string, unknown> = { query, limit };
-  if (typeFilter && typeFilter !== 'All') body.type_filter = typeFilter;
-
-  const res = await fetch(`${BASE}/search`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Search failed: ${res.statusText}`);
-  const data = await res.json();
-  return data.results;
-}
-
-export async function chatWithLeafy(
-  message: string,
-  history: { role: string; content: string }[] = [],
-): Promise<ChatResponseItem> {
-  const res = await fetch(`${BASE}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, history }),
-  });
-  if (!res.ok) throw new Error(`Chat failed: ${res.statusText}`);
-  return res.json();
-}
-
 // ── Advisor (Agentic AI) ───────────────────────────────────
 
 export interface AdvisorGeneratorInput {
@@ -114,6 +66,7 @@ export interface AdvisorGeneratorInput {
 
 export interface AdvisorResponseItem {
   response: string;
+  session_id: string;
   sources: { title: string; type: string; snippet: string }[];
   tool_calls: string[];
 }
@@ -123,11 +76,15 @@ export async function chatWithAdvisor(
   portfolio: Position[] = [],
   generators: AdvisorGeneratorInput[] = [],
   history: { role: string; content: string }[] = [],
+  sessionId?: string,
 ): Promise<AdvisorResponseItem> {
+  const body: Record<string, unknown> = { message, portfolio, generators, history };
+  if (sessionId) body.session_id = sessionId;
+
   const res = await fetch(`${BASE}/advisor`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, portfolio, generators, history }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Advisor failed: ${res.statusText}`);
   return res.json();

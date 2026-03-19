@@ -1,14 +1,16 @@
-"""LLM-powered compliance audit analysis using LangChain ReAct agent."""
+"""LLM-powered compliance audit analysis using LangChain ReAct agent + MCP."""
 
 import os
 import json
 import logging
-from typing import Optional
+from contextlib import AsyncExitStack
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.infrastructure.db import get_db
+from app.infrastructure.search import search_docs
+from app.api.advisor import _get_llm, _llm_configured, _enter_mcp_client, _get_checkpointer
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +18,6 @@ router = APIRouter()
 
 DB_NAME = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
 COLLECTION = "documents"
-VECTOR_INDEX = "vector_index"
 
 
 # ── Request / Response models ─────────────────────────────
@@ -52,63 +53,17 @@ class AuditResponse(BaseModel):
     tool_calls: list[str] = Field(default_factory=list)
 
 
-# ── Search helpers ────────────────────────────────────────
-
-def _vector_search(coll, query_embedding: list[float], limit: int, type_filter: Optional[str] = None):
-    pipeline = [
-        {
-            "$vectorSearch": {
-                "index": VECTOR_INDEX,
-                "path": "embedding",
-                "queryVector": query_embedding,
-                "numCandidates": limit * 10,
-                "limit": limit,
-            }
-        },
-        {"$addFields": {"vs_score": {"$meta": "vectorSearchScore"}}},
-        {"$project": {"embedding": 0}},
-    ]
-    if type_filter:
-        pipeline.insert(1, {"$match": {"type": type_filter}})
-    return list(coll.aggregate(pipeline))
-
-
-def _text_search(coll, query: str, limit: int, type_filter: Optional[str] = None):
-    filter_doc: dict = {
-        "$or": [
-            {"title": {"$regex": query, "$options": "i"}},
-            {"snippet": {"$regex": query, "$options": "i"}},
-        ]
-    }
-    if type_filter:
-        filter_doc["type"] = type_filter
-    return list(coll.find(filter_doc, {"embedding": 0}).limit(limit))
-
-
-def _search_docs(coll, query: str, limit: int = 5, type_filter: Optional[str] = None) -> list[dict]:
-    try:
-        from app.infrastructure.embeddings import embed_query
-        embedding = embed_query(query)
-        results = _vector_search(coll, embedding, limit, type_filter)
-        if results:
-            return results
-    except Exception:
-        pass
-    return _text_search(coll, query, limit, type_filter)
-
-
 # ── LangChain agent builder ──────────────────────────────
 
-def _build_audit_agent(coll, events: list[EventInput], regulation: str):
+def _build_audit_agent(coll, events: list[EventInput], regulation: str, mcp_tools: list | None = None, checkpointer=None):
     """Build a LangChain ReAct agent for compliance audit analysis."""
-    from langchain_anthropic import ChatAnthropic
     from langchain_core.tools import tool
     from langgraph.prebuilt import create_react_agent
 
     @tool
     def search_policies(query: str) -> str:
         """Search IEA energy policies and EU regulations. Use this to find relevant regulatory context for the compliance analysis."""
-        docs = _search_docs(coll, query, limit=5, type_filter="Policy")
+        docs = search_docs(coll, query, limit=5, type_filter="Policy")
         if not docs:
             return "No policy documents found for this query."
         parts = []
@@ -195,7 +150,15 @@ def _build_audit_agent(coll, events: list[EventInput], regulation: str):
         except Exception as e:
             return f"Web search unavailable: {e}"
 
-    tools = [search_policies, reconstruct_state, get_event_timeline, web_search]
+    domain_tools = [search_policies, reconstruct_state, get_event_timeline, web_search]
+    all_tools = domain_tools + (mcp_tools or [])
+
+    mcp_section = ""
+    if mcp_tools:
+        mcp_section = """
+
+You also have direct access to the MongoDB Atlas database via MCP (Model Context Protocol).
+Use MCP MongoDB tools to query the events collection or explore the database schema when needed for deeper analysis."""
 
     system_prompt = f"""You are a compliance auditor AI specializing in European energy market regulation. You are analyzing a specific compliance scenario related to {regulation}.
 
@@ -211,36 +174,29 @@ Your job is to:
 
 Be specific about event versions, timestamps, and monetary amounts. Reference the regulation by name.
 Use the voyage-finance-2 embedding model results for regulatory document search.
+{mcp_section}
 Keep your analysis structured with clear headings."""
 
-    base_url = os.getenv("AZURE_FOUNDRY_ENDPOINT", "").rstrip("/") + "/anthropic"
-    llm = ChatAnthropic(
-        model="claude-opus-4-6",
-        anthropic_api_key=os.getenv("AZURE_FOUNDRY_API_KEY", ""),
-        anthropic_api_url=base_url,
-        temperature=0.2,
-        max_tokens=2048,
-    )
+    llm = _get_llm()
 
     agent = create_react_agent(
         llm,
-        tools,
+        all_tools,
         prompt=system_prompt,
+        checkpointer=checkpointer,
     )
 
-    return agent, tools
+    return agent, all_tools
 
 
 # ── Endpoint ─────────────────────────────────────────────
 
 @router.post("/audit/analyze", response_model=AuditResponse)
 async def analyze_audit_scenario(req: AuditRequest, client=Depends(get_db)):
-    """AI-powered compliance audit analysis using LangChain ReAct agent."""
-    api_key = os.getenv("AZURE_FOUNDRY_API_KEY")
-    endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT")
-    if not api_key or not endpoint:
+    """AI-powered compliance audit analysis using LangChain ReAct agent with MCP."""
+    if not _llm_configured():
         return AuditResponse(
-            analysis="Azure AI Foundry not configured. Set AZURE_FOUNDRY_API_KEY and AZURE_FOUNDRY_ENDPOINT in deploy/.env to enable AI audit analysis.",
+            analysis="No LLM configured. Set ANTHROPIC_API_KEY (direct) or AZURE_FOUNDRY_API_KEY + AZURE_FOUNDRY_ENDPOINT (Azure) in deploy/.env to enable AI audit analysis.",
             sources=[],
             tool_calls=[],
         )
@@ -248,12 +204,19 @@ async def analyze_audit_scenario(req: AuditRequest, client=Depends(get_db)):
     db = client[DB_NAME]
     coll = db[COLLECTION]
 
+    # Use scenario_id as thread_id for audit session memory
+    thread_id = f"audit-{req.scenario_id}-v{req.current_version}"
+
     try:
-        agent, tools = _build_audit_agent(coll, req.events, req.regulation)
+        async with AsyncExitStack() as stack:
+            checkpointer = _get_checkpointer(client)
+            mcp_tools = await _enter_mcp_client(stack)
 
-        from langchain_core.messages import HumanMessage
+            agent, tools = _build_audit_agent(coll, req.events, req.regulation, mcp_tools, checkpointer=checkpointer)
 
-        prompt = f"""Analyze this compliance scenario:
+            from langchain_core.messages import HumanMessage
+
+            prompt = f"""Analyze this compliance scenario:
 
 **Scenario:** {req.scenario_title}
 **Regulation:** {req.regulation}
@@ -263,38 +226,39 @@ The event stream has {len(req.events)} events. The user is currently viewing eve
 
 Please reconstruct the state at version {req.current_version}, review the full event timeline, and search for any relevant regulatory policies. Then provide a comprehensive compliance analysis."""
 
-        result = agent.invoke({"messages": [HumanMessage(content=prompt)]})
+            config = {"configurable": {"thread_id": thread_id}}
+            result = await agent.ainvoke({"messages": [HumanMessage(content=prompt)]}, config)
 
-        response_text = ""
-        tool_calls_used = []
-        sources = []
+            response_text = ""
+            tool_calls_used = []
+            sources = []
 
-        for msg in result["messages"]:
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                for tc in msg.tool_calls:
-                    tool_calls_used.append(tc.get("name", "unknown"))
-            if hasattr(msg, "content") and isinstance(msg.content, str):
-                response_text = msg.content
+            for msg in result["messages"]:
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tool_calls_used.append(tc.get("name", "unknown"))
+                if hasattr(msg, "content") and isinstance(msg.content, str):
+                    response_text = msg.content
 
-        # Extract relevant sources
-        try:
-            docs = _search_docs(coll, f"{req.regulation} {req.scenario_title}", limit=3)
-            sources = [
-                SourceRef(
-                    title=d.get("title", ""),
-                    type=d.get("type", ""),
-                    snippet=d.get("snippet", ""),
-                )
-                for d in docs
-            ]
-        except Exception:
-            pass
+            # Extract relevant sources
+            try:
+                docs = search_docs(coll, f"{req.regulation} {req.scenario_title}", limit=3)
+                sources = [
+                    SourceRef(
+                        title=d.get("title", ""),
+                        type=d.get("type", ""),
+                        snippet=d.get("snippet", ""),
+                    )
+                    for d in docs
+                ]
+            except Exception:
+                pass
 
-        return AuditResponse(
-            analysis=response_text,
-            sources=sources,
-            tool_calls=tool_calls_used,
-        )
+            return AuditResponse(
+                analysis=response_text,
+                sources=sources,
+                tool_calls=tool_calls_used,
+            )
 
     except Exception as e:
         logger.exception("Audit analysis error")

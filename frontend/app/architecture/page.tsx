@@ -8,14 +8,16 @@ import { H2, Subtitle, Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '@/components/Providers';
 import PageHeader from '@/components/shared/PageHeader';
+import { AutonomyScale } from '@/components/shared/AutonomyBadge';
 
-type ViewLevel = 'context' | 'container' | 'component' | 'togaf';
+type ViewLevel = 'context' | 'container' | 'component' | 'togaf' | 'bvp';
 
 const C4_VIEWS: { id: ViewLevel; label: string; badge: string }[] = [
   { id: 'context', label: 'System Context (C1)', badge: 'ISO 42010' },
   { id: 'container', label: 'Container Diagram (C2)', badge: 'C4 Model' },
   { id: 'component', label: 'Component Diagram (C3)', badge: 'SOLID' },
   { id: 'togaf', label: 'TOGAF ADM Mapping', badge: 'TOGAF' },
+  { id: 'bvp', label: 'AI Agent Autonomy', badge: 'BVP' },
 ];
 
 export default function ArchitecturePage() {
@@ -130,6 +132,8 @@ export default function ArchitecturePage() {
 │  • Documents   │  │  • Query Embeddings  │  │  • IEA/IRENA PAMS   │
 │  • Telemetry   │  │  • 1024 dimensions   │  │  • Vessel AIS Data   │
 │  • Vector Index│  │                      │  │  • Market Feeds      │
+│  • Checkpoints │  │                      │  │                      │
+│    (agent mem) │  │                      │  │                      │
 └────────────────┘  └──────────────────────┘  └──────────────────────┘
 `}</pre>
           </Card>
@@ -209,7 +213,7 @@ export default function ArchitecturePage() {
 │  │  │  Advisor     │  │  Audit       │               │    │
 │  │  │  Agent       │  │  Agent       │               │    │
 │  │  │             │  │             │               │    │
-│  │  │  Tools:      │  │  Tools:      │               │    │
+│  │  │  Domain:     │  │  Domain:     │               │    │
 │  │  │  • search_   │  │  • search_   │               │    │
 │  │  │    policies  │  │    policies  │               │    │
 │  │  │  • search_   │  │  • reconstruct│              │    │
@@ -218,11 +222,20 @@ export default function ArchitecturePage() {
 │  │  │    portfolio │  │    _timeline │               │    │
 │  │  │  • generator │  │  • web_search│               │    │
 │  │  │    _status   │  │             │               │    │
-│  │  │  • web_search│  └──────────────┘               │    │
-│  │  └─────────────┘                                  │    │
-│  └──────────────────────┬────────────────────────────┘    │
-│                         │                                 │
-│  ┌──────────┐  ┌───────┴────────┐  ┌──────────────────┐  │
+│  │  │  • web_search│  │  MCP Tools:  │               │    │
+│  │  │             │  │  • find      │               │    │
+│  │  │  MCP Tools:  │  │  • aggregate │               │    │
+│  │  │  • find      │  └──────────────┘               │    │
+│  │  │  • aggregate │                                  │    │
+│  │  └──────┬──────┘                                  │    │
+│  │         │                                          │    │
+│  │  ┌──────┴──────────────────────────────────────┐  │    │
+│  │  │  MongoDB MCP Server (stdio, readOnly)       │  │    │
+│  │  │  npx mongodb-mcp-server                     │  │    │
+│  │  └─────────────────────┬───────────────────────┘  │    │
+│  └────────────────────────┼──────────────────────────┘    │
+│                           │                               │
+│  ┌──────────┐  ┌──────────┴──────┐  ┌──────────────────┐  │
 │  │ Commands │  │  Event Store   │  │  Telemetry       │  │
 │  │ API      │  │  (CQRS)       │  │  Generator       │  │
 │  └──────────┘  └────────────────┘  └──────────────────┘  │
@@ -276,7 +289,7 @@ export default function ArchitecturePage() {
                 },
                 {
                   principle: 'D — Dependency Inversion',
-                  application: 'Agents depend on tool abstractions (@tool decorator), not concrete implementations. MongoDB access is injected via Depends(get_db). Embedding model is configured via environment variable, not hardcoded.',
+                  application: 'Agents depend on tool abstractions (@tool decorator + MCP protocol), not concrete implementations. MongoDB access via MCP Server or Depends(get_db) injection. LLM provider auto-detected from env (Anthropic API or Azure AI Foundry). Embedding model configured via environment variable.',
                 },
               ].map((item, i) => (
                 <div key={i} className={css`padding: 16px; background: ${boxBg}; border: 1px solid ${borderColor}; border-radius: 8px;`}>
@@ -308,9 +321,10 @@ export default function ArchitecturePage() {
 │                   AI PRODUCT #1: EnerLeafy Advisor               │
 │                                                                  │
 │  Input: User message + Portfolio + Generator state               │
-│  Agent: LangChain ReAct (Claude Opus 4.6 on Azure AI Foundry)   │
-│  Tools: search_policies, search_market_intel, analyze_portfolio, │
-│         get_generator_status, web_search                         │
+│  Agent: LangChain ReAct (Claude — Anthropic API / Azure, auto)  │
+│  Domain: search_policies, search_market_intel, analyze_portfolio │
+│          get_generator_status, web_search                        │
+│  MCP:   MongoDB MCP Server (find, aggregate) — direct DB access  │
 │  RAG:   MongoDB Atlas Vector Search (voyage-finance-2, cosine)   │
 │  Output: Structured investment advice with sources               │
 └──────────────────────────────────────────────────────────────────┘
@@ -319,9 +333,10 @@ export default function ArchitecturePage() {
 │                   AI PRODUCT #2: Compliance Auditor               │
 │                                                                  │
 │  Input: Compliance scenario + Event stream + Regulation          │
-│  Agent: LangChain ReAct (Claude Opus 4.6 on Azure AI Foundry)   │
-│  Tools: search_policies, reconstruct_state (fold), get_event_    │
-│         timeline, web_search                                     │
+│  Agent: LangChain ReAct (Claude — Anthropic API / Azure, auto)  │
+│  Domain: search_policies, reconstruct_state (fold), get_event_   │
+│          timeline, web_search                                    │
+│  MCP:   MongoDB MCP Server (find, aggregate) — direct DB access  │
 │  RAG:   MongoDB Atlas Vector Search (voyage-finance-2, cosine)   │
 │  Output: Regulatory compliance analysis with evidence chain      │
 └──────────────────────────────────────────────────────────────────┘
@@ -331,7 +346,7 @@ export default function ArchitecturePage() {
 │                                                                  │
 │  Input: Search query or natural language question                 │
 │  Pipeline: Query → voyage-finance-2 embedding → $vectorSearch    │
-│            + regex fallback → ranked results                     │
+│            + regex fallback → RRF ranked results                 │
 │  Data:   208 documents (8 market intel + 200 IEA policies)       │
 │  Output: Ranked documents with relevance scores                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -381,7 +396,7 @@ export default function ArchitecturePage() {
                 {
                   phase: 'Phase D: Technology Architecture',
                   deliverable: 'Technology Stack',
-                  detail: 'Selected: Next.js 14 (frontend), FastAPI (backend), MongoDB Atlas (persistence + vector search), VoyageAI voyage-finance-2 (embeddings), Claude Opus 4.6 on Azure AI Foundry (LLM), LangChain/LangGraph (orchestration), LeafyGreen UI (design system).',
+                  detail: 'Selected: Next.js 14 (frontend), FastAPI (backend), MongoDB Atlas (persistence + vector search), VoyageAI voyage-finance-2 (embeddings), Claude on Anthropic API / Azure AI Foundry (LLM, auto-detected), LangChain/LangGraph (orchestration), LeafyGreen UI (design system).',
                 },
                 {
                   phase: 'Phase E: Opportunities & Solutions',
@@ -409,6 +424,84 @@ export default function ArchitecturePage() {
                   </div>
                   <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
                     {item.detail}
+                  </Body>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {activeView === 'bvp' && (
+        <div className={css`display: flex; flex-direction: column; gap: 16px;`}>
+          <Card darkMode={darkMode} className={css`padding: 20px;`}>
+            <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px;`}>
+              <H2 className={css`color: ${headingColor} !important; font-size: 18px !important;`}>
+                AI Agent Autonomy Scale
+              </H2>
+              <Badge variant="yellow">BVP Framework</Badge>
+            </div>
+            <Body className={css`color: ${textColor} !important; font-size: 13px !important; line-height: 1.6 !important; margin-bottom: 16px !important;`}>
+              Bessemer Venture Partners defines a 7-level autonomy scale for AI agents, inspired by the self-driving car industry.
+              This framework helps classify the maturity of AI capabilities within a product.
+              Below is how EnerLeafy&apos;s features map to the BVP scale.
+            </Body>
+            <AutonomyScale highlights={{
+              0: 'MongoDB Atlas Vector Search — document retrieval with voyage-finance-2 embeddings',
+              1: 'Hybrid RAG Search (/api/search) — chain-of-thought over retrieved documents with RRF ranking',
+              2: 'Audit Deep Analysis — LangChain ReAct agent for compliance analysis with human-initiated trigger',
+              3: 'EnerLeafy AI Advisor — autonomous portfolio analysis, policy search, web search, MongoDB MCP access, persistent conversation memory (MongoDBSaver), and trade recommendations',
+            }} />
+          </Card>
+
+          <Card darkMode={darkMode} className={css`padding: 20px;`}>
+            <H2 className={css`color: ${headingColor} !important; font-size: 18px !important; margin-bottom: 12px !important;`}>
+              AI Systems of Action Roadmap
+            </H2>
+            <Body className={css`color: ${textColor} !important; font-size: 13px !important; line-height: 1.6 !important; margin-bottom: 12px !important;`}>
+              Per BVP&apos;s <a href="https://www.bvp.com/atlas/roadmap-ai-systems-of-action" target="_blank" rel="noopener noreferrer" className={css`color: ${palette.blue.base};`}>AI Systems of Action</a> thesis,
+              AI-native systems of record offer a 10X value proposition by automating time-intensive workflows.
+              EnerLeafy demonstrates this progression:
+            </Body>
+            <div className={css`display: flex; flex-direction: column; gap: 12px;`}>
+              {[
+                {
+                  stage: 'System of Record',
+                  description: 'MongoDB Atlas stores event streams (CQRS), portfolio state, IEA policies, and telemetry events. The immutable event log provides the audit backbone.',
+                  status: 'Implemented',
+                },
+                {
+                  stage: 'System of Intelligence',
+                  description: 'Hybrid RAG pipeline: VoyageAI voyage-finance-2 embeddings + Atlas Vector Search + reciprocal rank fusion. Semantic retrieval over 200+ IEA policy documents.',
+                  status: 'Implemented',
+                },
+                {
+                  stage: 'System of Action (Co-pilot)',
+                  description: 'LangChain ReAct agent with domain tools + MongoDB MCP Server for direct database access. Agent autonomously decides which tools to call — including running custom MongoDB queries via MCP protocol.',
+                  status: 'Implemented — L3',
+                },
+                {
+                  stage: 'System of Action (Autopilot)',
+                  description: 'Future: autonomous trade execution, real-time compliance monitoring with auto-remediation, proactive portfolio rebalancing triggers.',
+                  status: 'Planned — L4+',
+                },
+              ].map((item, i) => (
+                <div key={i} className={css`
+                  padding: 16px;
+                  background: ${boxBg};
+                  border: 1px solid ${borderColor};
+                  border-left: 4px solid ${i < 3 ? accentGreen : borderColor};
+                  border-radius: 0 8px 8px 0;
+                  opacity: ${i < 3 ? 1 : 0.7};
+                `}>
+                  <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 6px;`}>
+                    <Body className={css`color: ${accentGreen} !important; font-size: 13px !important; font-weight: 700 !important;`}>
+                      {item.stage}
+                    </Body>
+                    <Badge variant={i < 3 ? 'green' : 'lightgray'}>{item.status}</Badge>
+                  </div>
+                  <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
+                    {item.description}
                   </Body>
                 </div>
               ))}

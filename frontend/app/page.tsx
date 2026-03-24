@@ -35,7 +35,7 @@ const wobble = keyframes`
   75% { transform: rotate(2deg) scale(1.01); }
 `;
 
-const MONITOR_IMAGE = '/img/658212a6662a0375785ec77751b4b582.jpg';
+const MONITOR_IMAGE = '/img/control-room-meme.jpg';
 
 const TICKER_ITEMS = [
   'DE BASE Q2 78.90 +1.2%',

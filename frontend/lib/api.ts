@@ -32,12 +32,23 @@ export async function getTariffScenario(
 // ── Telemetry ────────────────────────────────────────────────
 
 export async function startTelemetry(config: TelemetryConfig): Promise<void> {
-  const res = await fetch(`${BASE}/telemetry/start`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  });
-  if (!res.ok) throw new Error(`Failed to start telemetry: ${res.statusText}`);
+  // Stop any stale backend generator before starting fresh
+  await fetch(`${BASE}/telemetry/stop`, { method: 'POST', signal: AbortSignal.timeout(3000) }).catch(() => {});
+
+  // Fast timeout — if backend is unreachable, fall back to simulation quickly
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${BASE}/telemetry/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Failed to start telemetry: ${res.statusText}`);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function stopTelemetry(): Promise<void> {
@@ -81,13 +92,24 @@ export async function chatWithAdvisor(
   const body: Record<string, unknown> = { message, portfolio, generators, history };
   if (sessionId) body.session_id = sessionId;
 
-  const res = await fetch(`${BASE}/advisor`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Advisor failed: ${res.statusText}`);
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
+
+  try {
+    const res = await fetch(`${BASE}/advisor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new Error(`Advisor ${res.status}: ${text}`);
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ── Audit Analysis (LLM-powered compliance) ──────────────

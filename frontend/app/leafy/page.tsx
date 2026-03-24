@@ -6,7 +6,7 @@ import { css, keyframes } from '@emotion/css';
 import { palette } from '@leafygreen-ui/palette';
 import Badge from '@leafygreen-ui/badge';
 import Icon from '@leafygreen-ui/icon';
-import { H2, Body } from '@leafygreen-ui/typography';
+import { Body } from '@leafygreen-ui/typography';
 import { useDarkMode } from '@/components/Providers';
 import ChatContainer from '@/components/leafy/ChatContainer';
 import ChatInput from '@/components/leafy/ChatInput';
@@ -57,8 +57,8 @@ function LeafyContent() {
   const [activeAgenticSteps, setActiveAgenticSteps] = useState<AgenticStep[] | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
 
-  // Session ID for MongoDB conversation memory
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [serverSessionId, setServerSessionId] = useState<string | null>(null);
   const disruptionTriggeredRef = useRef(false);
@@ -69,19 +69,26 @@ function LeafyContent() {
     setServerSessionId(null);
     setActiveAgenticSteps(null);
     setIsTyping(false);
+    setStreamingId(null);
+  }, []);
+
+  const handleStreamComplete = useCallback(() => {
+    setStreamingId(null);
   }, []);
 
   // Auto-send disruption analysis message when triggered
   useEffect(() => {
     if (disruption.active && disruption.disruption && !disruptionTriggeredRef.current) {
       disruptionTriggeredRef.current = true;
+      const msgId = `msg-${Date.now()}-disruption`;
       const systemMsg: ChatMessage = {
-        id: `msg-${Date.now()}-disruption`,
+        id: msgId,
         role: 'assistant',
-        content: `**DISRUPTION ALERT: ${disruption.disruption.name}**\n\n${disruption.disruption.description}\n\n**Estimated impact on your portfolio:**\n- Oil prices: +${disruption.disruption.oilPriceImpactPercent}% (supply disruption)\n- Power prices: +${disruption.disruption.powerPriceImpactPercent}% (fuel cost pass-through)\n- Gas prices: +${disruption.disruption.gasPriceImpactPercent}% (Gulf Coast LNG terminal shutdowns)\n\n**Recommendation:** Review GAS and POWER positions immediately. Consider hedging with short-term futures to lock in current rates before spot prices adjust.\n\n*Ask me about specific impacts on your positions or for detailed supply chain analysis.*`,
+        content: `**DISRUPTION ALERT: ${disruption.disruption.name}**\n\n${disruption.disruption.description}\n\n**Estimated impact on your portfolio:**\n- Oil prices: +${disruption.disruption.oilPriceImpactPercent}% (Brent supply disruption)\n- Power prices: +${disruption.disruption.powerPriceImpactPercent}% (North Sea generation curtailed)\n- Gas prices: +${disruption.disruption.gasPriceImpactPercent}% (TTF spike — Norwegian pipeline + LNG delays)\n\n**Recommendation:** Review GAS and POWER positions immediately. Rotterdam-bound vessel traffic is suspended — expect TTF and Brent futures to gap higher. Consider hedging with short-term futures to lock in current rates before spot prices adjust.\n\n*Ask me about specific impacts on your positions or for detailed supply chain analysis.*`,
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, systemMsg]);
+      setStreamingId(msgId);
     }
     if (!disruption.active) {
       disruptionTriggeredRef.current = false;
@@ -97,13 +104,21 @@ function LeafyContent() {
     };
     setMessages((prev) => [...prev, userMsg]);
     setIsTyping(true);
+    setStreamingId(null);
 
-    setActiveAgenticSteps([
+    const steps: AgenticStep[] = [
       { id: 'portfolio', label: 'Analyzing portfolio positions...', description: 'Reading current P&L, exposure & risk', status: 'running', durationMs: 0 },
       { id: 'policies', label: 'Searching IEA/EU energy policies...', description: 'MongoDB Atlas Vector Search + voyage-finance-2', status: 'pending', durationMs: 0 },
       { id: 'web', label: 'Searching web for latest market data...', description: 'DuckDuckGo real-time search', status: 'pending', durationMs: 0 },
       { id: 'synthesize', label: 'Generating recommendations...', description: 'LangChain ReAct agent with Claude', status: 'pending', durationMs: 0 },
-    ]);
+    ];
+    setActiveAgenticSteps([...steps]);
+
+    const stepTimers = [
+      setTimeout(() => { steps[0].status = 'completed'; steps[1].status = 'running'; setActiveAgenticSteps([...steps]); }, 3000),
+      setTimeout(() => { steps[1].status = 'completed'; steps[2].status = 'running'; setActiveAgenticSteps([...steps]); }, 8000),
+      setTimeout(() => { steps[2].status = 'completed'; steps[3].status = 'running'; setActiveAgenticSteps([...steps]); }, 14000),
+    ];
 
     try {
       const currentPositions = liveFeed.active && liveFeed.positions ? liveFeed.positions : mockPositions;
@@ -129,6 +144,7 @@ function LeafyContent() {
         chatHistory,
         serverSessionId || sessionId,
       );
+      stepTimers.forEach(clearTimeout);
 
       if (advisorResp.session_id && !serverSessionId) {
         setServerSessionId(advisorResp.session_id);
@@ -143,15 +159,16 @@ function LeafyContent() {
           durationMs: 0,
         }));
         setActiveAgenticSteps(completedSteps);
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, 800));
       }
       setActiveAgenticSteps(null);
 
       const toolsUsed = advisorResp.tool_calls.length > 0
         ? `\n\n---\n*Agent tools used: ${advisorResp.tool_calls.join(', ')}*`
         : '';
+      const msgId = `msg-${Date.now()}-advisor`;
       const assistantMsg: ChatMessage = {
-        id: `msg-${Date.now()}-advisor`,
+        id: msgId,
         role: 'assistant',
         content: advisorResp.response + toolsUsed,
         timestamp: new Date().toISOString(),
@@ -162,14 +179,17 @@ function LeafyContent() {
         })),
       };
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch {
+      setStreamingId(msgId);
+    } catch (err) {
+      stepTimers.forEach(clearTimeout);
       setActiveAgenticSteps(null);
+      const detail = err instanceof Error ? err.message : String(err);
       setMessages((prev) => [
         ...prev,
         {
           id: `msg-${Date.now()}-error`,
           role: 'assistant',
-          content: `**Backend unavailable.**\n\nTo enable the AI advisor agent:\n1. Start the backend: \`cd backend && uvicorn app.main:app --reload\`\n2. Set \`ANTHROPIC_API_KEY\` (direct) or \`AZURE_FOUNDRY_API_KEY\` + \`AZURE_FOUNDRY_ENDPOINT\` in \`deploy/.env\`\n\nThe agent uses a LangChain ReAct architecture with tools for portfolio analysis, IEA policy search (RAG), and web search.`,
+          content: `**Something went wrong.**\n\n\`${detail}\`\n\nMake sure the backend is running: \`cd backend && uvicorn app.main:app --reload --port 8000\``,
           timestamp: new Date().toISOString(),
         },
       ]);
@@ -199,40 +219,35 @@ function LeafyContent() {
         overflow: hidden;
       `}
     >
-      {/* Minimal Header */}
+      {/* Compact Header */}
       <div
         className={css`
-          padding: 16px 24px;
+          padding: 10px 20px;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 12px;
+          gap: 8px;
           flex-shrink: 0;
         `}
       >
-        <Icon glyph="Sparkle" size={20} fill={palette.green.base} />
-        <H2 className={css`color: ${darkMode ? palette.white : palette.black} !important; font-size: 18px !important; margin: 0 !important;`}>
+        <Icon glyph="Sparkle" size={16} fill={palette.green.base} />
+        <span className={css`color: ${darkMode ? palette.white : palette.black}; font-size: 15px; font-weight: 600;`}>
           EnerLeafy AI
-        </H2>
-        <Badge variant="green">Vector Search</Badge>
-        <Badge variant="blue">voyage-finance-2</Badge>
-        <Badge variant="yellow">L3 Agent</Badge>
+        </span>
+        <Badge variant="green" className={css`font-size: 10px !important;`}>Vector Search</Badge>
+        <Badge variant="blue" className={css`font-size: 10px !important;`}>voyage-finance-2</Badge>
+        <Badge variant="yellow" className={css`font-size: 10px !important;`}>L3 Agent</Badge>
       </div>
 
       {/* Collapsible Vessel Map */}
-      <div
-        className={css`
-          flex-shrink: 0;
-          border-bottom: 1px solid ${borderColor};
-        `}
-      >
+      <div className={css`flex-shrink: 0; border-bottom: 1px solid ${borderColor};`}>
         <button
           onClick={() => setMapExpanded(!mapExpanded)}
           className={css`
             display: flex;
             align-items: center;
             gap: 6px;
-            padding: 8px 24px;
+            padding: 6px 20px;
             width: 100%;
             border: none;
             background: transparent;
@@ -256,18 +271,17 @@ function LeafyContent() {
         )}
       </div>
 
-      {/* Messages Area (scrollable, flex-grow) */}
+      {/* Messages Area — full width */}
       <div
         className={css`
           flex: 1;
           overflow-y: auto;
           display: flex;
           flex-direction: column;
-          padding: 0 24px;
+          padding: 0 20px;
         `}
       >
         {isEmpty ? (
-          /* Empty State */
           <div
             className={css`
               flex: 1;
@@ -275,14 +289,14 @@ function LeafyContent() {
               flex-direction: column;
               align-items: center;
               justify-content: center;
-              gap: 16px;
+              gap: 12px;
               animation: ${fadeIn} 0.4s ease;
             `}
           >
             <div
               className={css`
-                width: 64px;
-                height: 64px;
+                width: 56px;
+                height: 56px;
                 border-radius: 50%;
                 background: ${darkMode ? palette.green.dark3 : palette.green.light3};
                 display: flex;
@@ -290,12 +304,12 @@ function LeafyContent() {
                 justify-content: center;
               `}
             >
-              <Icon glyph="Sparkle" size={32} fill={palette.green.base} />
+              <Icon glyph="Sparkle" size={28} fill={palette.green.base} />
             </div>
-            <H2 className={css`color: ${darkMode ? palette.white : palette.black} !important; font-size: 24px !important; margin: 0 !important;`}>
+            <span className={css`color: ${darkMode ? palette.white : palette.black}; font-size: 20px; font-weight: 600;`}>
               How can I help you today?
-            </H2>
-            <Body className={css`color: ${textColor} !important; font-size: 14px !important; text-align: center !important; max-width: 500px !important;`}>
+            </span>
+            <Body className={css`color: ${textColor} !important; font-size: 13px !important; text-align: center !important; max-width: 500px !important;`}>
               I can analyze your portfolio, search EU energy policies, check market conditions, and provide actionable trade recommendations.
             </Body>
             <Badge variant="lightgray" className={css`font-size: 10px !important;`}>
@@ -303,12 +317,15 @@ function LeafyContent() {
             </Badge>
           </div>
         ) : (
-          /* Chat Messages */
           <>
-            <ChatContainer messages={messages} />
+            <ChatContainer
+              messages={messages}
+              streamingId={streamingId}
+              onStreamComplete={handleStreamComplete}
+            />
 
             {activeAgenticSteps && (
-              <div className={css`max-width: 768px; margin: 0 auto; width: 100%;`}>
+              <div className={css`width: 100%; max-width: 900px; margin: 0 auto;`}>
                 <AgenticStepIndicator steps={activeAgenticSteps} />
               </div>
             )}
@@ -316,12 +333,12 @@ function LeafyContent() {
             {isTyping && !activeAgenticSteps && (
               <div
                 className={css`
-                  max-width: 768px;
-                  margin: 0 auto;
                   width: 100%;
-                  padding: 8px 0;
+                  max-width: 900px;
+                  margin: 0 auto;
+                  padding: 6px 0;
                   color: ${textColor};
-                  font-size: 13px;
+                  font-size: 12px;
                   font-style: italic;
                 `}
               >
@@ -332,35 +349,32 @@ function LeafyContent() {
         )}
       </div>
 
-      {/* Input Area (sticky bottom) */}
+      {/* Input Area */}
       <div
         className={css`
           flex-shrink: 0;
-          padding: 16px 24px;
+          padding: 12px 20px;
           border-top: 1px solid ${borderColor};
           background: ${darkMode ? palette.black : palette.white};
         `}
       >
-        <div className={css`max-width: 768px; margin: 0 auto;`}>
-          {/* Suggested prompts (empty state only) */}
+        <div className={css`max-width: 900px; margin: 0 auto;`}>
           {isEmpty && (
             <SuggestedPrompts prompts={suggestedPrompts} onSelect={handlePromptSelect} />
           )}
 
-          {/* Chat input */}
           <ChatInput onSend={sendMessage} disabled={isTyping} />
 
-          {/* Bottom bar */}
           <div
             className={css`
               display: flex;
               align-items: center;
               justify-content: space-between;
-              margin-top: 8px;
-              gap: 8px;
+              margin-top: 6px;
+              gap: 6px;
             `}
           >
-            <div className={css`display: flex; gap: 8px; align-items: center;`}>
+            <div className={css`display: flex; gap: 6px; align-items: center;`}>
               {messages.length > 0 && (
                 <button
                   onClick={handleNewChat}
@@ -368,7 +382,7 @@ function LeafyContent() {
                     display: flex;
                     align-items: center;
                     gap: 4px;
-                    padding: 4px 10px;
+                    padding: 3px 8px;
                     border-radius: 12px;
                     border: 1px solid ${borderColor};
                     background: transparent;
@@ -390,7 +404,7 @@ function LeafyContent() {
                     display: flex;
                     align-items: center;
                     gap: 4px;
-                    padding: 4px 10px;
+                    padding: 3px 8px;
                     border-radius: 12px;
                     border: 1px solid ${darkMode ? palette.red.dark2 : palette.red.light2};
                     background: transparent;
@@ -411,7 +425,7 @@ function LeafyContent() {
                     display: flex;
                     align-items: center;
                     gap: 4px;
-                    padding: 4px 10px;
+                    padding: 3px 8px;
                     border-radius: 12px;
                     border: 1px solid ${borderColor};
                     background: transparent;
@@ -433,11 +447,11 @@ function LeafyContent() {
                 display: flex;
                 align-items: center;
                 gap: 4px;
-                padding: 4px 8px;
+                padding: 3px 6px;
                 border: none;
                 background: transparent;
                 color: ${mutedColor};
-                font-size: 11px;
+                font-size: 10px;
                 cursor: pointer;
                 font-family: inherit;
                 &:hover { color: ${textColor}; }
@@ -448,13 +462,12 @@ function LeafyContent() {
             </button>
           </div>
 
-          {/* Collapsible Disclaimer */}
           {showDisclaimer && (
             <div
               className={css`
-                margin-top: 8px;
-                padding: 10px 12px;
-                border-radius: 8px;
+                margin-top: 6px;
+                padding: 8px 10px;
+                border-radius: 6px;
                 background: ${darkMode ? 'rgba(255,255,255,0.03)' : palette.gray.light3};
                 animation: ${fadeIn} 0.2s ease;
               `}

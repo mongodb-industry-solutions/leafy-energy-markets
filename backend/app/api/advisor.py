@@ -16,32 +16,49 @@ logger = logging.getLogger(__name__)
 
 
 def _get_llm():
-    """Auto-detect LLM provider: direct Anthropic API or Azure AI Foundry."""
+    """Auto-detect LLM provider: direct Anthropic API → Azure AI Foundry → error.
+
+    A real Anthropic key (sk-ant-*) from deploy/.env takes priority.
+    Shell-level ANTHROPIC_API_KEY (e.g. Azure keys set for Claude Code) is
+    ignored when it doesn't look like a genuine Anthropic key.
+    """
     from langchain_anthropic import ChatAnthropic
 
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    if anthropic_key:
+    # 1. Direct Anthropic API — real key from deploy/.env
+    #    Explicitly set base URL to prevent the anthropic SDK from picking up
+    #    ANTHROPIC_BASE_URL from the shell (which may point to Azure).
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if anthropic_key.startswith("sk-ant-"):
+        logger.info("LLM: Anthropic direct (claude-opus-4-6)")
         return ChatAnthropic(
-            model="claude-sonnet-4-20250514",
+            model="claude-opus-4-6",
             api_key=anthropic_key,
+            anthropic_api_url="https://api.anthropic.com",
             temperature=0.3,
             max_tokens=4096,
         )
 
-    # Fall back to Azure AI Foundry
-    base_url = os.getenv("AZURE_FOUNDRY_ENDPOINT", "").rstrip("/") + "/anthropic"
-    return ChatAnthropic(
-        model="claude-sonnet-4-20250514",
-        anthropic_api_key=os.getenv("AZURE_FOUNDRY_API_KEY", ""),
-        anthropic_api_url=base_url,
-        temperature=0.3,
-        max_tokens=4096,
-    )
+    # 2. Azure AI Foundry
+    azure_key = os.getenv("AZURE_FOUNDRY_API_KEY")
+    azure_endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT")
+    if azure_key and azure_endpoint:
+        model = os.getenv("AZURE_FOUNDRY_MODEL", "claude-opus-4-6")
+        base_url = azure_endpoint.rstrip("/") + "/anthropic"
+        logger.info("LLM: Azure AI Foundry (%s) at %s", model, base_url)
+        return ChatAnthropic(
+            model=model,
+            anthropic_api_key=azure_key,
+            anthropic_api_url=base_url,
+            temperature=0.3,
+            max_tokens=4096,
+        )
+
+    raise ValueError("No LLM configured. Set ANTHROPIC_API_KEY or AZURE_FOUNDRY_* in deploy/.env.")
 
 
 def _llm_configured() -> bool:
     """Check if any LLM provider is configured."""
-    if os.getenv("ANTHROPIC_API_KEY"):
+    if os.getenv("ANTHROPIC_API_KEY", "").startswith("sk-ant-"):
         return True
     if os.getenv("AZURE_FOUNDRY_API_KEY") and os.getenv("AZURE_FOUNDRY_ENDPOINT"):
         return True
@@ -279,29 +296,56 @@ Use the specialized search tools (search_policies, search_market_intel) for sema
 Use MCP MongoDB tools (find, aggregate) when you need to run custom queries, explore data schema, or access collections beyond the document store.
 Key collections: documents (market intel + IEA policies), telemetry_events (generator time-series metrics), events (CQRS event store)."""
 
-    system_prompt = f"""You are EnerLeafy, an AI energy market investment advisor at a European energy trading firm. You have access to the trader's live portfolio positions, real-time power generator telemetry, IEA energy policies, vessel tracking data, and market research documents stored in MongoDB Atlas.
+    system_prompt = f"""You are EnerLeafy, an L3 autonomous AI energy market advisor (human-in-the-loop) at a European energy trading firm. You have access to the trader's live portfolio, power generator telemetry, IEA/EU energy policies, vessel tracking data, and market research in MongoDB Atlas.
 
 Your conversation history is persisted in MongoDB — you remember previous messages in this session.
 
-IMPORTANT — For EVERY user question you MUST use your tools before answering:
-1. ALWAYS call analyze_portfolio first to understand the trader's current positions, P&L, and risk exposure
-2. ALWAYS call search_policies to find relevant EU/IEA energy regulations and policies
-3. ALWAYS call web_search to get the latest market news, prices, and current events
-4. If the user asks about generators or power supply, call get_generator_status
-5. For market research or ESG data, call search_market_intel
+## TOOL USAGE (MANDATORY)
+For EVERY user question, use your tools before answering:
+1. ALWAYS call analyze_portfolio to understand positions, P&L, and risk exposure
+2. ALWAYS call search_policies for relevant EU/IEA regulations (REMIT, EU ETS, REPowerEU, CACM)
+3. ALWAYS call web_search for latest market news, prices, and current events
+4. Call get_generator_status if asking about power supply
+5. Call search_market_intel for research or ESG data
 
-After gathering data from ALL relevant tools, synthesize into a response that includes:
-- Specific, actionable trade recommendations (buy/sell, instrument, quantity, target price, stop-loss)
-- Portfolio risk assessment with specific numbers from the analyze_portfolio results
-- Regulatory context citing specific IEA/EU policies by name
-- Current market data and news from web search results
-- Clear rationale for each recommendation
+## RESPONSE FORMAT
+Structure your response concisely — minimize whitespace:
 
-You use a hybrid search approach:
-1. RAG via MongoDB Atlas Vector Search with VoyageAI voyage-finance-2 embeddings for internal documents and IEA policies
-2. Web search via DuckDuckGo for real-time market data, news, and current events
-{mcp_section}
-Keep responses focused and structured with clear headings using markdown. Always cite your sources."""
+### Market Assessment
+Brief synthesis of current conditions (2-3 sentences max).
+
+### Portfolio Impact
+Key metrics from analyze_portfolio, risk flags, concentration issues.
+
+### Recommended Actions
+Present 2-4 specific actions the trader should take. For each action:
+- **Action**: Clear instruction (e.g., "Sell 200 units DE Baseload Q2-26 at EUR 79.50")
+- **Rationale**: Why, citing specific data/policies
+- **Risk**: What happens if wrong
+- **Priority**: High/Medium/Low
+
+### Pending Decisions (Human Approval Required)
+As an L3 agent, you MUST present decisions that require human authorization:
+- Positions to liquidate or significantly adjust — state exact instruments, quantities, and target prices
+- Regulatory filings or reclamations to submit (e.g., REMIT reporting to ACER, complaint to national regulator)
+- Hedging strategies that change portfolio risk profile
+- Use the CQRS/Event Sourcing audit trail to reconstruct trade history using the .fold() method when analyzing compliance issues
+
+Format each decision as a clear YES/NO question the trader can act on immediately.
+
+### Sources
+Cite specific documents, policies, or web sources used.
+
+## STYLE RULES
+- Be direct and concise. No filler text.
+- Use tables for numeric comparisons.
+- Use bullet points, not paragraphs, for lists.
+- Quantify everything: EUR amounts, percentages, MW, bbl.
+- Reference specific EU regulations by name and article when relevant.
+- When analyzing vessel cargo impact, connect it to specific portfolio positions.
+
+You use hybrid search: RAG via MongoDB Atlas Vector Search (VoyageAI voyage-finance-2) + DuckDuckGo web search for real-time data.
+{mcp_section}"""
 
     llm = _get_llm()
 
@@ -335,8 +379,12 @@ async def advisor_chat(req: AdvisorRequest, client=Depends(get_db)):
 
     try:
         async with AsyncExitStack() as stack:
-            # MongoDB conversation checkpointer
-            checkpointer = _get_checkpointer(client)
+            # MongoDB conversation checkpointer (optional — skip if DB is slow)
+            try:
+                checkpointer = _get_checkpointer(client)
+            except Exception as e:
+                logger.warning("Checkpointer unavailable: %s — running without memory", e)
+                checkpointer = None
 
             # Try to connect MongoDB MCP Server for direct DB access
             mcp_tools = await _enter_mcp_client(stack)

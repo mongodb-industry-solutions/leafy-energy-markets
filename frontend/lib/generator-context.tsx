@@ -431,22 +431,6 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const startRealStream = useCallback(() => {
-    const es = new EventSource(`${BACKEND}/telemetry/stream`);
-    eventSourceRef.current = es;
-    let tick = 0;
-    es.onmessage = (event) => {
-      tick++;
-      const metrics: TelemetryMetrics = JSON.parse(event.data);
-      appendMetrics(metrics, tick);
-    };
-    es.onerror = () => {
-      es.close();
-      eventSourceRef.current = null;
-      setIsRunning(false);
-    };
-  }, [appendMetrics]);
-
   const startSimulatedStream = useCallback((cfg: TelemetryConfig) => {
     startTimeRef.current = Date.now();
     totalEventsRef.current = 0;
@@ -457,6 +441,43 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
       appendMetrics(metrics, elapsed);
     }, 1000);
   }, [appendMetrics]);
+
+  const startRealStream = useCallback(() => {
+    const es = new EventSource(`${BACKEND}/telemetry/stream`);
+    eventSourceRef.current = es;
+    let tick = 0;
+    let gotData = false;
+
+    // Watchdog: if no data arrives within 5s, switch to simulation
+    const watchdog = setTimeout(() => {
+      if (!gotData && eventSourceRef.current === es) {
+        es.close();
+        eventSourceRef.current = null;
+        setIsSimulated(true);
+        setBackendWarning('No telemetry data received — switched to simulation mode.');
+        startSimulatedStream(configRef.current);
+      }
+    }, 5000);
+
+    es.onmessage = (event) => {
+      if (!gotData) {
+        gotData = true;
+        clearTimeout(watchdog);
+      }
+      tick++;
+      const metrics: TelemetryMetrics = JSON.parse(event.data);
+      appendMetrics(metrics, tick);
+    };
+    es.onerror = () => {
+      clearTimeout(watchdog);
+      es.close();
+      eventSourceRef.current = null;
+      // Fall back to simulation instead of stopping entirely
+      setIsSimulated(true);
+      setBackendWarning('Backend stream lost — switched to simulation mode.');
+      startSimulatedStream(configRef.current);
+    };
+  }, [appendMetrics, startSimulatedStream]);
 
   const addTrackedPosition = useCallback((position: import('./types').Position) => {
     positionsRef.current = [...positionsRef.current, position];

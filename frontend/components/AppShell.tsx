@@ -19,6 +19,8 @@ const navItems = [
   { label: 'Auditing', href: '/audit', glyph: 'OpenNewTab' as const },
   { label: 'CQRS', href: '/cqrs', glyph: 'CurlyBraces' as const },
   { label: 'Architecture', href: '/architecture', glyph: 'University' as const },
+  { label: 'VPP', href: '/vpp', glyph: 'Diagram2' as const },
+  { label: 'Evals', href: '/evals', glyph: 'Beaker' as const },
 ];
 
 const pulse = keyframes`

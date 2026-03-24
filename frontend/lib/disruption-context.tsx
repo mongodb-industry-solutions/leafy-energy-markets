@@ -13,19 +13,19 @@ export interface Disruption {
   vesselsAffected: boolean;
 }
 
-const HURRICANE_SCENARIO: Disruption = {
-  id: 'hurricane-gulf-2026',
+const STORM_SCENARIO: Disruption = {
+  id: 'storm-north-sea-2026',
   type: 'hurricane',
-  name: 'Hurricane — Gulf of Mexico',
+  name: 'Severe Storm — North Sea',
   description:
-    'A Category 4 hurricane has been detected in the Gulf of Mexico. All vessel traffic through the region is suspended. Venezuelan crude oil shipments are delayed indefinitely. Refineries along the US Gulf Coast are shutting down precautionary operations.',
-  oilPriceImpactPercent: 18,
-  powerPriceImpactPercent: 12,
-  gasPriceImpactPercent: 15,
+    'A severe extratropical cyclone is crossing the North Sea with 90+ knot winds. All vessel traffic to Rotterdam Europoort is suspended. Norwegian crude and Baltic tanker shipments are delayed. North Sea platforms have reduced output. TTF and Brent futures spiking.',
+  oilPriceImpactPercent: 14,
+  powerPriceImpactPercent: 18,
+  gasPriceImpactPercent: 22,
   vesselsAffected: true,
 };
 
-export const DISRUPTION_SCENARIOS = [HURRICANE_SCENARIO];
+export const DISRUPTION_SCENARIOS = [STORM_SCENARIO];
 
 interface DisruptionContextValue {
   active: boolean;

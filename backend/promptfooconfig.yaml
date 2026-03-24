@@ -1,0 +1,209 @@
+# Promptfoo evaluation config for EnerLeafy AI agents
+# Run: npx promptfoo@latest eval
+# View: npx promptfoo@latest view
+
+description: "EnerLeafy AI Agent Evaluations"
+
+providers:
+  - id: "python:promptfoo/advisor_provider.py"
+    label: "Advisor Agent"
+  - id: "python:promptfoo/audit_provider.py"
+    label: "Audit Agent"
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: "output.length > 100"
+    - type: not-contains
+      value: "I encountered an error"
+
+tests:
+  # ── Advisor Agent Tests ─────────────────────────────────
+
+  - description: "Advisor: portfolio risk exposure analysis"
+    vars:
+      prompt: "What is my portfolio risk exposure?"
+      portfolio:
+        - id: "pos-1"
+          instrument: "EU ETS Carbon Futures"
+          type: "Futures"
+          quantity: 500
+          avgPrice: 82.50
+          currentPrice: 79.30
+          unrealizedPnl: -1600
+        - id: "pos-2"
+          instrument: "TTF Natural Gas Q1"
+          type: "Futures"
+          quantity: 200
+          avgPrice: 34.20
+          currentPrice: 38.75
+          unrealizedPnl: 910
+    provider: "python:promptfoo/advisor_provider.py"
+    assert:
+      - type: contains-any
+        value:
+          - "portfolio"
+          - "risk"
+          - "exposure"
+          - "position"
+      - type: python
+        value: "file://promptfoo/assertions.py"
+        config:
+          type: uses_tools
+          expected:
+            - "analyze_portfolio"
+
+  - description: "Advisor: EU carbon regulation impact"
+    vars:
+      prompt: "How will EU carbon regulations affect energy prices?"
+    provider: "python:promptfoo/advisor_provider.py"
+    assert:
+      - type: contains-any
+        value:
+          - "EU"
+          - "ETS"
+          - "carbon"
+          - "emission"
+      - type: python
+        value: "file://promptfoo/assertions.py"
+        config:
+          type: uses_tools
+          expected:
+            - "search_policies"
+
+  - description: "Advisor: market briefing on European natural gas"
+    vars:
+      prompt: "Give me a market briefing on European natural gas"
+    provider: "python:promptfoo/advisor_provider.py"
+    assert:
+      - type: contains-any
+        value:
+          - "gas"
+          - "natural gas"
+          - "TTF"
+          - "price"
+      - type: python
+        value: "file://promptfoo/assertions.py"
+        config:
+          type: uses_tools
+          expected:
+            - "web_search"
+
+  - description: "Advisor: trade recommendation with rationale"
+    vars:
+      prompt: "Should I increase gas futures given current EU policy?"
+      portfolio:
+        - id: "pos-1"
+          instrument: "TTF Natural Gas Q1"
+          type: "Futures"
+          quantity: 200
+          avgPrice: 34.20
+          currentPrice: 38.75
+          unrealizedPnl: 910
+    provider: "python:promptfoo/advisor_provider.py"
+    assert:
+      - type: llm-rubric
+        value: >
+          The response should provide a trade recommendation regarding gas futures.
+          It should include a rationale that references current EU policy or regulations.
+          It should mention specific considerations like risk, market conditions, or price targets.
+
+  - description: "Advisor: empty portfolio handling (no hallucination)"
+    vars:
+      prompt: "Analyze my positions"
+    provider: "python:promptfoo/advisor_provider.py"
+    assert:
+      - type: contains-any
+        value:
+          - "no position"
+          - "no portfolio"
+          - "No portfolio"
+          - "not available"
+          - "empty"
+          - "don't have"
+          - "do not have"
+      - type: not-contains
+        value: "Total portfolio value: EUR"
+
+  # ── Audit Agent Tests ───────────────────────────────────
+
+  - description: "Audit: REMIT compliance analysis"
+    vars:
+      prompt: >
+        Analyze this compliance scenario:
+
+        **Scenario:** Suspicious trading pattern around maintenance announcement
+        **Regulation:** REMIT (EU 1227/2011)
+        **Description:** A series of trades were executed shortly before a planned outage was publicly disclosed.
+
+        The event stream has 4 events. The user is currently viewing event version 4.
+
+        Please reconstruct the state at version 4, review the full event timeline, and search for any relevant regulatory policies. Then provide a comprehensive compliance analysis.
+      regulation: "REMIT (EU 1227/2011)"
+      scenario_title: "Suspicious trading pattern around maintenance announcement"
+      events:
+        - streamId: "trade-audit-001"
+          streamType: "TradeAudit"
+          version: 1
+          eventType: "TradeExecuted"
+          timestamp: "2024-12-01T09:00:00Z"
+          payload:
+            portfolio_id: "port-eu-01"
+            instrument_id: "TTF-Gas-Q1"
+            price: 34.50
+            quantity: 500
+          metadata: {}
+        - streamId: "trade-audit-001"
+          streamType: "TradeAudit"
+          version: 2
+          eventType: "TradeExecuted"
+          timestamp: "2024-12-01T09:15:00Z"
+          payload:
+            portfolio_id: "port-eu-01"
+            instrument_id: "TTF-Gas-Q1"
+            price: 34.80
+            quantity: 300
+          metadata: {}
+        - streamId: "trade-audit-001"
+          streamType: "TradeAudit"
+          version: 3
+          eventType: "TradeExecuted"
+          timestamp: "2024-12-01T09:30:00Z"
+          payload:
+            portfolio_id: "port-eu-01"
+            instrument_id: "TTF-Gas-Q1"
+            price: 35.10
+            quantity: 200
+          metadata: {}
+        - streamId: "trade-audit-001"
+          streamType: "TradeAudit"
+          version: 4
+          eventType: "PriceTickRecorded"
+          timestamp: "2024-12-01T10:00:00Z"
+          payload:
+            price: 38.50
+          metadata:
+            price_type: "post-announcement"
+    provider: "python:promptfoo/audit_provider.py"
+    assert:
+      - type: python
+        value: "file://promptfoo/assertions.py"
+        config:
+          type: cites_regulation
+      - type: contains-any
+        value:
+          - "REMIT"
+          - "1227/2011"
+          - "insider"
+          - "market abuse"
+      - type: python
+        value: "file://promptfoo/assertions.py"
+        config:
+          type: uses_tools
+          expected:
+            - "search_policies"
+            - "get_event_timeline"
+      - type: python
+        value: "file://promptfoo/assertions.py"
+        config:
+          type: has_structure

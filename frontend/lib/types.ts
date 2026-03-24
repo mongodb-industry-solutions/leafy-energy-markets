@@ -78,12 +78,19 @@ export type DocumentType = 'Research' | 'ESG' | 'Asset' | 'Maritime' | 'Policy';
 
 // Vessel Tracking
 export type VesselStatus = 'underway' | 'at-anchor' | 'loading' | 'discharging';
-export type CrudeGrade = 'Merey 16' | 'Mesa 30' | 'Santa Barbara' | 'Hamaca' | 'Boscan';
+export type CargoGrade =
+  | 'Johan Sverdrup' | 'Ekofisk' | 'Troll'
+  | 'Bonny Light' | 'Forcados' | 'Qua Iboe'
+  | 'Qatar LNG' | 'US LNG'
+  | 'Urals' | 'ESPO Blend'
+  | 'Saharan Blend' | 'CPC Blend'
+  | string;
 
 export interface VesselCargo {
-  grade: CrudeGrade;
+  grade: CargoGrade;
   volumeBarrels: number;
   apiGravity: number;
+  volumeCubicMeters?: number;
 }
 
 export interface Vessel {
@@ -93,6 +100,7 @@ export interface Vessel {
   status: VesselStatus;
   cargo: VesselCargo[];
   totalBarrels: number;
+  totalCubicMeters?: number;
   speedKnots: number;
   heading: number;
   position: { lat: number; lng: number };
@@ -101,6 +109,7 @@ export interface Vessel {
   departureDate: string;
   eta: string;
   progressPercent: number;
+  routeId?: string;
 }
 
 export interface RouteWaypoint {

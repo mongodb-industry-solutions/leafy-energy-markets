@@ -146,7 +146,7 @@ export default function ArchitecturePage() {
               {[
                 { concern: 'Real-time Market Intelligence', resolution: 'Hybrid RAG (VoyageAI voyage-finance-2 embeddings + DuckDuckGo web search) provides both historical document context and live market data' },
                 { concern: 'Regulatory Compliance (REMIT, CACM)', resolution: 'CQRS/Event Sourcing with immutable audit trail — fold() reconstructs state at any point for compliance verification' },
-                { concern: 'Portfolio Risk Management', resolution: 'Live telemetry simulation with position tracking, disruption scenario modeling (hurricane events), and automated P&L computation' },
+                { concern: 'Portfolio Risk Management', resolution: 'Live telemetry simulation with position tracking, disruption scenario modeling (North Sea storm events), and automated P&L computation' },
                 { concern: 'Data Provenance & Integrity', resolution: 'MongoDB Atlas Vector Search ensures traceable document retrieval; event sourcing ensures no data is ever mutated or lost' },
               ].map((item, i) => (
                 <div key={i} className={css`padding: 12px; background: ${boxBg}; border: 1px solid ${borderColor}; border-radius: 8px;`}>

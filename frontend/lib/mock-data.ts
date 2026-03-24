@@ -212,9 +212,9 @@ export const suggestedPrompts: SuggestedPrompt[] = [
     prompt: 'Assess the key risks in my energy portfolio including concentration risk, regulatory risk, and market exposure. Suggest specific hedging strategies.',
   },
   {
-    title: 'Venezuelan Crude Supply',
-    description: 'Analyze tanker fleet impact on Gulf Coast prices',
-    prompt: 'How will incoming Venezuelan crude shipments affect Gulf Coast prices? Analyze the current tanker fleet in transit from Amuay to Corpus Christi and provide price forecasts and trade recommendations.',
+    title: 'Rotterdam Supply Analysis',
+    description: 'Analyze vessel cargo impact on European energy prices',
+    prompt: 'Analyze the current fleet of tankers and LNG carriers heading to Rotterdam. How will their cargo — Norwegian crude, Nigerian oil, Qatari LNG, and Baltic supplies — impact TTF gas, Brent crude, and EU carbon prices? Factor in EU regulations (REMIT, EU ETS, REPowerEU) and my current portfolio exposure.',
   },
 ];
 

@@ -25,8 +25,9 @@ POOL_DEFAULTS = dict(
     retryWrites=True,
     retryReads=True,
     w="majority",
-    serverSelectionTimeoutMS=5_000,
-    connectTimeoutMS=5_000,
+    serverSelectionTimeoutMS=30_000,
+    connectTimeoutMS=20_000,
+    socketTimeoutMS=60_000,
     appName="leafy-energy-markets",
 )
 
@@ -43,13 +44,12 @@ def get_client() -> MongoClient:
                 "  MONGO_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/"
             )
         _client = MongoClient(uri, **POOL_DEFAULTS)
-        # Eagerly verify the connection so startup fails fast
+        # Verify connection — log warning but don't crash if Atlas is cold
         try:
             _client.admin.command("ping")
             logger.info("MongoDB connected — pool ready (max=%d)", POOL_DEFAULTS["maxPoolSize"])
         except ConnectionFailure as exc:
-            _client = None
-            raise RuntimeError(f"Cannot reach MongoDB at {uri[:40]}…: {exc}") from exc
+            logger.warning("MongoDB ping failed (Atlas may be cold): %s — will retry on demand", exc)
     return _client
 
 

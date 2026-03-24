@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import random
 import time
@@ -11,6 +12,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pymongo.errors import CollectionInvalid, OperationFailure
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -46,6 +49,7 @@ class TelemetryLoadGenerator:
         self._latencies: deque[float] = deque(maxlen=1000)
         self._event_timestamps: deque[float] = deque(maxlen=50000)
         self._lock = asyncio.Lock()
+        self._last_error: str = ""
         self._client = None
         self._collection = None
         self._base_time: Optional[datetime] = None
@@ -177,9 +181,11 @@ class TelemetryLoadGenerator:
 
             except asyncio.CancelledError:
                 break
-            except Exception:
+            except Exception as exc:
+                logger.error("Writer %d error: %s: %s", writer_id, type(exc).__name__, exc)
                 async with self._lock:
                     self._errors += 1
+                    self._last_error = f"{type(exc).__name__}: {exc}"
                 await asyncio.sleep(0.1)
 
     def _percentile(self, data: list[float], p: float) -> float:
@@ -301,6 +307,7 @@ async def telemetry_status():
     return {
         "running": generator._running,
         "metrics": generator.get_metrics().model_dump() if generator._running else None,
+        "last_error": generator._last_error or None,
     }
 
 
@@ -429,8 +436,8 @@ portfolio_projection = PortfolioProjection()
 _original_generate_event = TelemetryLoadGenerator._generate_event
 
 
-def _patched_generate_event(self, event_types):
-    event = _original_generate_event(self, event_types)
+def _patched_generate_event(self, event_types, timestamp=None):
+    event = _original_generate_event(self, event_types, timestamp)
     if event.get("event_type") == "price_tick":
         portfolio_projection.update_price(event["instrument_id"], event["price"])
     return event

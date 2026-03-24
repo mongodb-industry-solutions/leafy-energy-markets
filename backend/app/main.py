@@ -6,10 +6,15 @@ from dotenv import load_dotenv
 # Resolve project root (backend/app/main.py -> backend -> project root)
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-# Load env files: backend/.env first, then deploy/.env as fallback.
-# load_dotenv does NOT override already-set vars, so the first file wins.
-load_dotenv(os.path.join(_PROJECT_ROOT, 'backend', '.env'))
-load_dotenv(os.path.join(_PROJECT_ROOT, 'deploy', '.env'))
+# Load env files with override=True so project config always wins over
+# shell-level env vars (e.g. ANTHROPIC_API_KEY set for other tools).
+load_dotenv(os.path.join(_PROJECT_ROOT, 'deploy', '.env'), override=True)
+load_dotenv(os.path.join(_PROJECT_ROOT, 'backend', '.env'), override=True)
+
+# Clear shell-level Anthropic SDK env vars that would hijack LLM routing.
+# The backend manages its own LLM config via AZURE_FOUNDRY_* or ANTHROPIC_API_KEY above.
+for _var in ("ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"):
+    os.environ.pop(_var, None)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

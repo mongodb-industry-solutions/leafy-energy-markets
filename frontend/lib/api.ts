@@ -33,22 +33,18 @@ export async function getTariffScenario(
 
 export async function startTelemetry(config: TelemetryConfig): Promise<void> {
   // Stop any stale backend generator before starting fresh
-  await fetch(`${BASE}/telemetry/stop`, { method: 'POST', signal: AbortSignal.timeout(3000) }).catch(() => {});
-
-  // Fast timeout — if backend is unreachable, fall back to simulation quickly
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
-    const res = await fetch(`${BASE}/telemetry/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`Failed to start telemetry: ${res.statusText}`);
-  } finally {
-    clearTimeout(timeout);
+    await fetch(`${BASE}/telemetry/stop`, { method: 'POST' });
+  } catch {
+    // Backend may be unreachable — continue to start attempt
   }
+
+  const res = await fetch(`${BASE}/telemetry/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) throw new Error(`Failed to start telemetry: ${res.statusText}`);
 }
 
 export async function stopTelemetry(): Promise<void> {

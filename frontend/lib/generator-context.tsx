@@ -17,9 +17,9 @@ import type {
   ExposurePoint,
 } from './types';
 
-export type TelemetryMode = 'simulation' | 'backend';
+import { BACKEND_PROXY, BACKEND_SSE } from './constants';
 
-const BACKEND = '/api';
+export type TelemetryMode = 'simulation' | 'backend';
 const MAX_POINTS = 60;
 const MAX_FEED_EVENTS = 80;
 const MAX_SUBSTATION_HISTORY = 60;
@@ -285,6 +285,7 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startTimeRef = useRef<number>(0);
   const totalEventsRef = useRef<number>(0);
   const startWallTimeRef = useRef<Date>(new Date());
@@ -292,16 +293,19 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
   const prevTotalPnlRef = useRef<number>(0);
   const exposureTimeSeriesRef = useRef<ExposurePoint[]>([]);
   const positionsRef = useRef([...mockPositions]);
+  const eventPushInFlightRef = useRef(false);
   const configRef = useRef(config);
   configRef.current = config;
   const liveFeedRef = useRef(liveFeed);
   liveFeedRef.current = liveFeed;
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
   const isSimulatedRef = useRef(isSimulated);
   isSimulatedRef.current = isSimulated;
 
   const cleanup = useCallback(() => {
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
@@ -339,19 +343,22 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
       return next.length > MAX_FEED_EVENTS ? next.slice(0, MAX_FEED_EVENTS) : next;
     });
 
-    // Fire-and-forget: push events to MongoDB via backend
-    const dbEvents = newEvents.map((e) => ({
-      timestamp: currentTime.toISOString(),
-      event_type: e.eventType,
-      originator: e.originator,
-      region: e.region,
-      ...e.payload,
-    }));
-    fetch(`${BACKEND}/telemetry/events`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ events: dbEvents }),
-    }).catch(() => { /* backend unavailable — silent */ });
+    // Push events to MongoDB via backend — skip if previous push still in flight
+    if (!eventPushInFlightRef.current) {
+      const dbEvents = newEvents.map((e) => ({
+        timestamp: currentTime.toISOString(),
+        event_type: e.eventType,
+        originator: e.originator,
+        region: e.region,
+        ...e.payload,
+      }));
+      eventPushInFlightRef.current = true;
+      fetch(`${BACKEND_PROXY}/telemetry/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: dbEvents }),
+      }).catch(() => {}).finally(() => { eventPushInFlightRef.current = false; });
+    }
 
     const readings = generateSubstationReadings(elapsed, currentTime);
     setSubstations((prev) =>
@@ -443,13 +450,14 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
   }, [appendMetrics]);
 
   const startRealStream = useCallback(() => {
-    const es = new EventSource(`${BACKEND}/telemetry/stream`);
+    const es = new EventSource(`${BACKEND_SSE}/telemetry/stream`);
     eventSourceRef.current = es;
     let tick = 0;
     let gotData = false;
+    let errorCount = 0;
 
-    // Watchdog: if no data arrives within 5s, switch to simulation
-    const watchdog = setTimeout(() => {
+    // Watchdog: if no data arrives within 8s, switch to simulation
+    watchdogRef.current = setTimeout(() => {
       if (!gotData && eventSourceRef.current === es) {
         es.close();
         eventSourceRef.current = null;
@@ -457,25 +465,38 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
         setBackendWarning('No telemetry data received — switched to simulation mode.');
         startSimulatedStream(configRef.current);
       }
-    }, 5000);
+    }, 8000);
 
     es.onmessage = (event) => {
       if (!gotData) {
         gotData = true;
-        clearTimeout(watchdog);
+        clearTimeout(watchdogRef.current!);
       }
+      errorCount = 0;
       tick++;
       const metrics: TelemetryMetrics = JSON.parse(event.data);
       appendMetrics(metrics, tick);
     };
     es.onerror = () => {
-      clearTimeout(watchdog);
-      es.close();
-      eventSourceRef.current = null;
-      // Fall back to simulation instead of stopping entirely
-      setIsSimulated(true);
-      setBackendWarning('Backend stream lost — switched to simulation mode.');
-      startSimulatedStream(configRef.current);
+      errorCount++;
+      // EventSource auto-reconnects — only bail after repeated failures
+      // or if we never received any data after several attempts
+      if (errorCount >= 3 && !gotData) {
+        clearTimeout(watchdogRef.current!);
+        es.close();
+        eventSourceRef.current = null;
+        setIsSimulated(true);
+        setBackendWarning('Backend stream unavailable — switched to simulation mode.');
+        startSimulatedStream(configRef.current);
+      } else if (errorCount >= 5 && gotData) {
+        // Stream was working but lost connection persistently
+        clearTimeout(watchdogRef.current!);
+        es.close();
+        eventSourceRef.current = null;
+        setIsSimulated(true);
+        setBackendWarning('Backend stream lost — switched to simulation mode.');
+        startSimulatedStream(configRef.current);
+      }
     };
   }, [appendMetrics, startSimulatedStream]);
 
@@ -504,23 +525,25 @@ export function GeneratorProvider({ children }: { children: React.ReactNode }) {
     prevTotalPnlRef.current = mockPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
     exposureTimeSeriesRef.current = [];
 
-    // Mark feed as active
-    liveFeedRef.current.startFeed();
-
     // Always try backend first; fall back to simulation if unreachable
     try {
       await startTelemetry(configRef.current);
+      // Start live feed AFTER the backend generator is running,
+      // otherwise /dashboard/stream and /scenarios/stream return 400
+      liveFeedRef.current.startFeed();
       startRealStream();
-    } catch {
+    } catch (err) {
+      console.error('[Generator] Backend start failed:', err);
+      liveFeedRef.current.startFeed();
       setIsSimulated(true);
-      setBackendWarning('Backend unreachable — running in simulation mode. Events pushed to DB when available.');
+      setBackendWarning('Backend unreachable — running in simulation mode.');
       startSimulatedStream(configRef.current);
     }
   }, [startRealStream, startSimulatedStream]);
 
   const stop = useCallback(async () => {
     cleanup();
-    if (!isSimulatedRef.current && modeRef.current === 'backend') {
+    if (!isSimulatedRef.current) {
       try { await stopTelemetry(); } catch { /* ignore */ }
     }
     setIsRunning(false);

@@ -3,7 +3,7 @@
 import { createContext, useContext, useRef, useState, useCallback } from 'react';
 import type { Position, PortfolioSummary, HourlyExposure, ExposurePoint } from './types';
 
-const BACKEND = '/api';
+import { BACKEND_SSE } from './constants';
 
 export interface ScenarioLiveData {
   hourlyPnl: { hour: number; baseline: number; dynamic: number; difference: number }[];
@@ -91,10 +91,13 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
 
     setState((prev) => ({ ...prev, active: true }));
 
-    // Try backend SSE — if it fails, the feed still works via pushData()
-    const dashES = new EventSource(`${BACKEND}/dashboard/stream`);
+    // Backend SSE — let EventSource auto-reconnect on transient errors.
+    // Only close after repeated failures (e.g. backend truly down).
+    let dashErrors = 0;
+    const dashES = new EventSource(`${BACKEND_SSE}/dashboard/stream`);
     dashboardESRef.current = dashES;
     dashES.onmessage = (event) => {
+      dashErrors = 0;
       try {
         const data = JSON.parse(event.data);
         setState((prev) => ({
@@ -107,13 +110,18 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
       } catch { /* ignore parse errors */ }
     };
     dashES.onerror = () => {
-      dashES.close();
-      dashboardESRef.current = null;
+      dashErrors++;
+      if (dashErrors >= 3) {
+        dashES.close();
+        dashboardESRef.current = null;
+      }
     };
 
-    const scenES = new EventSource(`${BACKEND}/scenarios/stream`);
+    let scenErrors = 0;
+    const scenES = new EventSource(`${BACKEND_SSE}/scenarios/stream`);
     scenarioESRef.current = scenES;
     scenES.onmessage = (event) => {
+      scenErrors = 0;
       try {
         const data = JSON.parse(event.data);
         setState((prev) => ({
@@ -123,8 +131,11 @@ export function LiveFeedProvider({ children }: { children: React.ReactNode }) {
       } catch { /* ignore parse errors */ }
     };
     scenES.onerror = () => {
-      scenES.close();
-      scenarioESRef.current = null;
+      scenErrors++;
+      if (scenErrors >= 3) {
+        scenES.close();
+        scenarioESRef.current = null;
+      }
     };
   }, []);
 

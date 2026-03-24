@@ -25,9 +25,9 @@ POOL_DEFAULTS = dict(
     retryWrites=True,
     retryReads=True,
     w="majority",
-    serverSelectionTimeoutMS=30_000,
-    connectTimeoutMS=20_000,
-    socketTimeoutMS=60_000,
+    serverSelectionTimeoutMS=10_000,
+    connectTimeoutMS=10_000,
+    socketTimeoutMS=30_000,
     appName="leafy-energy-markets",
 )
 

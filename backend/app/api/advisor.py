@@ -32,8 +32,8 @@ def _get_llm():
         logger.info("LLM: Azure AI Foundry (%s) at %s", model, base_url)
         return ChatAnthropic(
             model=model,
-            anthropic_api_key=azure_key,
-            anthropic_api_url=base_url,
+            api_key=azure_key,
+            base_url=base_url,
             temperature=0.3,
             max_tokens=4096,
         )
@@ -45,7 +45,7 @@ def _get_llm():
         return ChatAnthropic(
             model="claude-opus-4-6",
             api_key=anthropic_key,
-            anthropic_api_url="https://api.anthropic.com",
+            base_url="https://api.anthropic.com",
             temperature=0.3,
             max_tokens=4096,
         )

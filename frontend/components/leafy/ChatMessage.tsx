@@ -1,19 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { css, keyframes } from '@emotion/css';
+import { css } from '@emotion/css';
 import Card from '@leafygreen-ui/card';
 import Icon from '@leafygreen-ui/icon';
 import { Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '@/components/Providers';
 import SourceCitation from './SourceCitation';
+import MarkdownMessage from './MarkdownMessage';
 import type { ChatMessage as ChatMessageType } from '@/lib/types';
-
-const cursorBlink = keyframes`
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-`;
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -39,7 +35,6 @@ export default function ChatMessage({ message, streaming, onStreamComplete }: Ch
       return;
     }
 
-    // Split into words preserving whitespace structure
     wordsRef.current = message.content.split(/(\s+)/);
     wordIndexRef.current = 0;
     setDisplayedContent('');
@@ -112,6 +107,13 @@ export default function ChatMessage({ message, streaming, onStreamComplete }: Ch
             line-height: 1.5;
             word-break: break-word;
 
+            /* Streamdown overrides for our theme */
+            .streamdown, [data-streamdown] {
+              font-size: 13px;
+              line-height: 1.5;
+              color: inherit;
+            }
+
             p {
               margin: 0 0 6px 0;
               &:last-child { margin-bottom: 0; }
@@ -125,7 +127,7 @@ export default function ChatMessage({ message, streaming, onStreamComplete }: Ch
               color: ${darkMode ? palette.gray.light1 : palette.gray.dark1};
             }
 
-            h3 {
+            h1, h2, h3 {
               color: ${darkMode ? palette.white : palette.black};
               font-size: 13px;
               font-weight: 700;
@@ -179,19 +181,24 @@ export default function ChatMessage({ message, streaming, onStreamComplete }: Ch
               font-size: 12px;
               font-family: 'Source Code Pro', monospace;
             }
+
+            pre {
+              margin: 4px 0;
+              border-radius: 6px;
+              overflow-x: auto;
+            }
+
+            pre code {
+              display: block;
+              padding: 8px 12px;
+              background: ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)'};
+            }
           `}
         >
-          <span dangerouslySetInnerHTML={{ __html: formatMarkdown(displayedContent) }} />
-          {isStreaming && (
-            <span className={css`
-              display: inline-block;
-              width: 2px;
-              height: 14px;
-              background: ${palette.green.base};
-              margin-left: 2px;
-              vertical-align: text-bottom;
-              animation: ${cursorBlink} 0.8s ease-in-out infinite;
-            `} />
+          {isUser ? (
+            <span>{displayedContent}</span>
+          ) : (
+            <MarkdownMessage text={displayedContent} isAnimating={isStreaming} />
           )}
         </div>
 
@@ -224,57 +231,4 @@ export default function ChatMessage({ message, streaming, onStreamComplete }: Ch
       </Card>
     </div>
   );
-}
-
-/** Markdown-to-HTML for chat messages */
-function formatMarkdown(text: string): string {
-  let html = text
-    // H3 headers
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    // H2 headers (##)
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // Italic
-    .replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Horizontal rule
-    .replace(/^---$/gm, '<hr/>')
-    // Tables
-    .replace(/\|(.+)\|/g, (match) => {
-      const cells = match.split('|').filter(Boolean).map((c) => c.trim());
-      if (cells.every((c) => /^[-:]+$/.test(c))) return '';
-      const tag = 'td';
-      return '<tr>' + cells.map((c) => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
-    })
-    .replace(/((<tr>.*<\/tr>\s*)+)/g, '<table>$1</table>')
-    // Ordered lists
-    .replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
-    // Unordered lists
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // Wrap consecutive li in list
-    .replace(/((<li>.*<\/li>\s*)+)/g, '<ul>$1</ul>')
-    // Collapse triple+ newlines into double
-    .replace(/\n{3,}/g, '\n\n')
-    // Paragraphs — double newline
-    .replace(/\n\n/g, '</p><p>')
-    // Single newline
-    .replace(/\n/g, '<br/>');
-
-  // Wrap in paragraph tags
-  html = '<p>' + html + '</p>';
-  // Clean up empty paragraphs
-  html = html.replace(/<p>\s*<\/p>/g, '');
-  // Don't nest block elements in p tags
-  html = html.replace(/<p>(<h3>)/g, '$1');
-  html = html.replace(/(<\/h3>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<table>)/g, '$1');
-  html = html.replace(/(<\/table>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<ul>)/g, '$1');
-  html = html.replace(/(<\/ul>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<hr\/>)/g, '$1');
-  html = html.replace(/(<hr\/>)<\/p>/g, '$1');
-
-  return html;
 }

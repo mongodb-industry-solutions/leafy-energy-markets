@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  transpilePackages: ['streamdown', 'ai-sdk-elements'],
   async rewrites() {
     return [
       {

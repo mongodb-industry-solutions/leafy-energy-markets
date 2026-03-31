@@ -16,29 +16,14 @@ logger = logging.getLogger(__name__)
 
 
 def _get_llm():
-    """Auto-detect LLM provider: direct Anthropic API → Azure AI Foundry → error.
+    """Auto-detect LLM provider: Azure AI Foundry → direct Anthropic API → error.
 
-    A real Anthropic key (sk-ant-*) from deploy/.env takes priority.
-    Shell-level ANTHROPIC_API_KEY (e.g. Azure keys set for Claude Code) is
-    ignored when it doesn't look like a genuine Anthropic key.
+    Azure AI Foundry is the primary provider (configured via AZURE_FOUNDRY_* in deploy/.env).
+    A real Anthropic key (sk-ant-*) in deploy/.env is used as fallback when Azure is not set.
     """
     from langchain_anthropic import ChatAnthropic
 
-    # 1. Direct Anthropic API — real key from deploy/.env
-    #    Explicitly set base URL to prevent the anthropic SDK from picking up
-    #    ANTHROPIC_BASE_URL from the shell (which may point to Azure).
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if anthropic_key.startswith("sk-ant-"):
-        logger.info("LLM: Anthropic direct (claude-opus-4-6)")
-        return ChatAnthropic(
-            model="claude-opus-4-6",
-            api_key=anthropic_key,
-            anthropic_api_url="https://api.anthropic.com",
-            temperature=0.3,
-            max_tokens=4096,
-        )
-
-    # 2. Azure AI Foundry
+    # 1. Azure AI Foundry (primary)
     azure_key = os.getenv("AZURE_FOUNDRY_API_KEY")
     azure_endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT")
     if azure_key and azure_endpoint:
@@ -53,14 +38,26 @@ def _get_llm():
             max_tokens=4096,
         )
 
-    raise ValueError("No LLM configured. Set ANTHROPIC_API_KEY or AZURE_FOUNDRY_* in deploy/.env.")
+    # 2. Direct Anthropic API (fallback) — requires sk-ant-* key in deploy/.env
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if anthropic_key.startswith("sk-ant-"):
+        logger.info("LLM: Anthropic direct (claude-opus-4-6)")
+        return ChatAnthropic(
+            model="claude-opus-4-6",
+            api_key=anthropic_key,
+            anthropic_api_url="https://api.anthropic.com",
+            temperature=0.3,
+            max_tokens=4096,
+        )
+
+    raise ValueError("No LLM configured. Set AZURE_FOUNDRY_API_KEY + AZURE_FOUNDRY_ENDPOINT in deploy/.env.")
 
 
 def _llm_configured() -> bool:
     """Check if any LLM provider is configured."""
-    if os.getenv("ANTHROPIC_API_KEY", "").startswith("sk-ant-"):
-        return True
     if os.getenv("AZURE_FOUNDRY_API_KEY") and os.getenv("AZURE_FOUNDRY_ENDPOINT"):
+        return True
+    if os.getenv("ANTHROPIC_API_KEY", "").startswith("sk-ant-"):
         return True
     return False
 

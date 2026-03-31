@@ -39,3 +39,7 @@ Thumbs.db
 # Testing
 coverage/
 .nyc_output
+
+# VibeCoding
+.claude
+.github

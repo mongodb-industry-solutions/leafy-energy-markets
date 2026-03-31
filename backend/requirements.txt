@@ -12,3 +12,4 @@ langgraph
 duckduckgo-search
 langchain-mcp-adapters
 langgraph-checkpoint-mongodb
+ragas>=0.2

@@ -9,6 +9,12 @@ import { H3, Subtitle, Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '@/components/Providers';
 import PageHeader from '@/components/shared/PageHeader';
+import hljs from 'highlight.js/lib/core';
+import hljsPython from 'highlight.js/lib/languages/python';
+import hljsTypeScript from 'highlight.js/lib/languages/typescript';
+
+hljs.registerLanguage('python', hljsPython);
+hljs.registerLanguage('typescript', hljsTypeScript);
 
 // ── Architecture diagram data ────────────────────────────────
 
@@ -688,136 +694,7 @@ function SequenceDiagram({
   );
 }
 
-// ── Syntax highlighting ──────────────────────────────────────
-
-interface HighlightToken {
-  text: string;
-  color?: string;
-}
-
-function highlightCode(code: string, lang: string, darkMode: boolean): HighlightToken[][] {
-  const colors = {
-    keyword: darkMode ? '#c792ea' : '#7c3aed',
-    string: darkMode ? '#c3e88d' : '#16a34a',
-    comment: darkMode ? '#546e7a' : '#9ca3af',
-    function: darkMode ? '#82aaff' : '#2563eb',
-    decorator: darkMode ? '#ffcb6b' : '#d97706',
-    type: darkMode ? '#f78c6c' : '#ea580c',
-    default: darkMode ? palette.gray.light2 : palette.gray.dark2,
-  };
-
-  const pyKeywords = /\b(def|class|for|if|else|elif|return|import|from|with|as|try|except|raise|not|and|or|in|is|None|True|False|self|lambda|yield|pass|break|continue)\b/;
-  const tsKeywords = /\b(function|const|let|var|for|switch|case|break|return|as|type|interface|if|else|new|this|typeof|instanceof|export|import|default|from)\b/;
-
-  return code.split('\n').map((line) => {
-    const tokens: HighlightToken[] = [];
-
-    if (lang === 'python') {
-      // Comment
-      if (line.trimStart().startsWith('#')) {
-        return [{ text: line, color: colors.comment }];
-      }
-      // Multi-line string (triple quote lines)
-      if (line.trimStart().startsWith('"""') || line.trimStart().startsWith("'''")) {
-        return [{ text: line, color: colors.string }];
-      }
-      // Decorator
-      if (line.trimStart().startsWith('@')) {
-        return [{ text: line, color: colors.decorator }];
-      }
-
-      let remaining = line;
-      while (remaining.length > 0) {
-        // String
-        const strMatch = remaining.match(/^(f?["'])(.*?)\1/);
-        if (strMatch) {
-          tokens.push({ text: strMatch[0], color: colors.string });
-          remaining = remaining.slice(strMatch[0].length);
-          continue;
-        }
-        // Keyword
-        const kwMatch = remaining.match(new RegExp(`^${pyKeywords.source}`));
-        if (kwMatch) {
-          tokens.push({ text: kwMatch[0], color: kwMatch[0] === 'self' ? colors.type : colors.keyword });
-          remaining = remaining.slice(kwMatch[0].length);
-          continue;
-        }
-        // Function name after def
-        if (tokens.length > 0 && tokens[tokens.length - 1].text === 'def') {
-          const fnMatch = remaining.match(/^(\s+)(\w+)/);
-          if (fnMatch) {
-            tokens.push({ text: fnMatch[1], color: colors.default });
-            tokens.push({ text: fnMatch[2], color: colors.function });
-            remaining = remaining.slice(fnMatch[0].length);
-            continue;
-          }
-        }
-        // Type hint after colon
-        const typeMatch = remaining.match(/^:\s*([\w\[\]|, ]+)/);
-        if (typeMatch) {
-          tokens.push({ text: ':', color: colors.default });
-          tokens.push({ text: ' ' + typeMatch[1].trim(), color: colors.type });
-          remaining = remaining.slice(typeMatch[0].length);
-          continue;
-        }
-        // Inline comment
-        const commentMatch = remaining.match(/^(\s*#.*)$/);
-        if (commentMatch) {
-          tokens.push({ text: commentMatch[0], color: colors.comment });
-          remaining = '';
-          continue;
-        }
-        // Default character
-        tokens.push({ text: remaining[0], color: colors.default });
-        remaining = remaining.slice(1);
-      }
-    } else {
-      // TypeScript
-      if (line.trimStart().startsWith('//')) {
-        return [{ text: line, color: colors.comment }];
-      }
-
-      let remaining = line;
-      while (remaining.length > 0) {
-        // String
-        const strMatch = remaining.match(/^(['"`])(.*?)\1/);
-        if (strMatch) {
-          tokens.push({ text: strMatch[0], color: colors.string });
-          remaining = remaining.slice(strMatch[0].length);
-          continue;
-        }
-        // Keyword
-        const kwMatch = remaining.match(new RegExp(`^${tsKeywords.source}`));
-        if (kwMatch) {
-          tokens.push({ text: kwMatch[0], color: colors.keyword });
-          remaining = remaining.slice(kwMatch[0].length);
-          continue;
-        }
-        // Type annotation after colon (simplified)
-        const typeMatch = remaining.match(/^:\s*([A-Z][\w<>\[\]|, ]*)/);
-        if (typeMatch) {
-          tokens.push({ text: ':', color: colors.default });
-          tokens.push({ text: ' ' + typeMatch[1], color: colors.type });
-          remaining = remaining.slice(typeMatch[0].length);
-          continue;
-        }
-        // Inline comment
-        const commentMatch = remaining.match(/^(\/\/.*)$/);
-        if (commentMatch) {
-          tokens.push({ text: commentMatch[0], color: colors.comment });
-          remaining = '';
-          continue;
-        }
-        tokens.push({ text: remaining[0], color: colors.default });
-        remaining = remaining.slice(1);
-      }
-    }
-
-    return tokens.length > 0 ? tokens : [{ text: line, color: colors.default }];
-  });
-}
-
-// ── Reusable code block component ────────────────────────────
+// ── Reusable code block component (powered by highlight.js) ──
 
 function CodeBlock({
   darkMode,
@@ -836,9 +713,35 @@ function CodeBlock({
   const mutedColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
   const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const codeBg = darkMode ? '#0d1117' : '#f6f8fa';
-  const codeColor = darkMode ? palette.gray.light2 : palette.gray.dark2;
 
-  const highlighted = highlightCode(code, lang, darkMode);
+  // highlight.js token colors — dark / light variants
+  const kw   = darkMode ? '#c792ea' : '#7c3aed';   // keyword
+  const str  = darkMode ? '#c3e88d' : '#16a34a';   // string / literal
+  const cmt  = darkMode ? '#546e7a' : '#9ca3af';   // comment
+  const fn   = darkMode ? '#82aaff' : '#2563eb';   // function / title
+  const dec  = darkMode ? '#ffcb6b' : '#d97706';   // decorator / meta
+  const tp   = darkMode ? '#f78c6c' : '#ea580c';   // type / built-in
+  const num  = darkMode ? '#f78c6c' : '#c2410c';   // number
+  const dflt = darkMode ? '#d4d4d4' : '#374151';   // default text
+
+  const hljsTheme = css`
+    .hljs-keyword, .hljs-operator, .hljs-punctuation { color: ${kw}; }
+    .hljs-string, .hljs-template-variable { color: ${str}; }
+    .hljs-comment, .hljs-quote { color: ${cmt}; font-style: italic; }
+    .hljs-title, .hljs-title.function_, .hljs-title.class_ { color: ${fn}; }
+    .hljs-meta, .hljs-meta .hljs-keyword { color: ${dec}; }
+    .hljs-type, .hljs-built_in, .hljs-selector-tag { color: ${tp}; }
+    .hljs-number, .hljs-literal { color: ${num}; }
+    .hljs-variable, .hljs-name, .hljs-attr { color: ${dflt}; }
+    .hljs-params { color: ${tp}; }
+  `;
+
+  let highlightedHtml: string;
+  try {
+    highlightedHtml = hljs.highlight(code, { language: lang }).value;
+  } catch {
+    highlightedHtml = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
 
   return (
     <div
@@ -869,22 +772,16 @@ function CodeBlock({
           margin: 0;
           padding: 16px;
           background: ${codeBg};
-          color: ${codeColor};
+          color: ${dflt};
           font-size: 12px;
           line-height: 1.6;
           font-family: 'Source Code Pro', monospace;
           overflow-x: auto;
           white-space: pre;
+          ${hljsTheme}
         `}
       >
-        {highlighted.map((lineTokens, lineIdx) => (
-          <span key={lineIdx}>
-            {lineTokens.map((token, tokenIdx) => (
-              <span key={tokenIdx} style={{ color: token.color }}>{token.text}</span>
-            ))}
-            {lineIdx < highlighted.length - 1 ? '\n' : ''}
-          </span>
-        ))}
+        <code dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
       </pre>
     </div>
   );

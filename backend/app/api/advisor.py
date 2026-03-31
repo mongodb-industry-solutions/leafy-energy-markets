@@ -308,19 +308,37 @@ For EVERY user question, use your tools before answering:
 4. Call get_generator_status if asking about power supply
 5. Call search_market_intel for research or ESG data
 
+## INLINE RICH ELEMENTS
+You can embed rich UI elements inline in your markdown using @name{{...json...}} markers. The frontend renders these as interactive cards. Use them whenever you reference prices, positions, risks, or sources.
+
+Available elements:
+- @source_ref{{"title":"Doc title","type":"Research|ESG|Asset|Maritime|Policy","snippet":"Brief excerpt"}} — cite a document inline
+- @price_card{{"instrument":"TTF Front-Month","price":42.50,"change":-2.3,"unit":"EUR/MWh"}} — show a live price badge
+- @position_card{{"instrument":"DE Baseload Q2-26","type":"long","quantity":500,"avgPrice":78.20,"currentPrice":79.50,"pnl":650}} — show a portfolio position
+- @risk_alert{{"level":"high","title":"Concentration risk","detail":"75% exposure to single commodity"}} — flag a risk
+
+Rules for elements:
+- The JSON inside braces must be valid JSON on a single line (no line breaks inside the marker)
+- Place elements inline within your sentences, e.g. "The @price_card{{"instrument":"TTF","price":42.5,"change":-2.3}} is under pressure due to..."
+- Use @source_ref for every document you cite from search results
+- Use @price_card when mentioning specific commodity prices
+- Use @position_card when discussing specific portfolio positions from analyze_portfolio
+- Use @risk_alert for any risk flags (high/medium/low)
+- You can use multiple elements in the same paragraph
+
 ## RESPONSE FORMAT
 Structure your response concisely — minimize whitespace:
 
 ### Market Assessment
-Brief synthesis of current conditions (2-3 sentences max).
+Brief synthesis of current conditions (2-3 sentences max). Use @price_card for key prices.
 
 ### Portfolio Impact
-Key metrics from analyze_portfolio, risk flags, concentration issues.
+Key metrics from analyze_portfolio. Use @position_card for notable positions and @risk_alert for risk flags.
 
 ### Recommended Actions
 Present 2-4 specific actions the trader should take. For each action:
 - **Action**: Clear instruction (e.g., "Sell 200 units DE Baseload Q2-26 at EUR 79.50")
-- **Rationale**: Why, citing specific data/policies
+- **Rationale**: Why, citing specific data/policies (use @source_ref)
 - **Risk**: What happens if wrong
 - **Priority**: High/Medium/Low
 
@@ -333,9 +351,6 @@ As an L3 agent, you MUST present decisions that require human authorization:
 
 Format each decision as a clear YES/NO question the trader can act on immediately.
 
-### Sources
-Cite specific documents, policies, or web sources used.
-
 ## STYLE RULES
 - Be direct and concise. No filler text.
 - Use tables for numeric comparisons.
@@ -343,6 +358,7 @@ Cite specific documents, policies, or web sources used.
 - Quantify everything: EUR amounts, percentages, MW, bbl.
 - Reference specific EU regulations by name and article when relevant.
 - When analyzing vessel cargo impact, connect it to specific portfolio positions.
+- Do NOT add a separate "Sources" section — use @source_ref inline instead.
 
 You use hybrid search: RAG via MongoDB Atlas Vector Search (VoyageAI voyage-finance-2) + DuckDuckGo web search for real-time data.
 {mcp_section}"""
@@ -411,20 +427,6 @@ async def advisor_chat(req: AdvisorRequest, client=Depends(get_db)):
                         tool_calls_used.append(tc.get("name", "unknown"))
                 if hasattr(msg, "content") and isinstance(msg.content, str):
                     response_text = msg.content  # Last AI message wins
-
-            # Try to extract sources from search results
-            try:
-                docs = search_docs(coll, req.message, limit=3)
-                sources = [
-                    SourceRef(
-                        title=d.get("title", ""),
-                        type=d.get("type", ""),
-                        snippet=d.get("snippet", ""),
-                    )
-                    for d in docs
-                ]
-            except Exception:
-                pass
 
             return AdvisorResponse(
                 response=response_text,

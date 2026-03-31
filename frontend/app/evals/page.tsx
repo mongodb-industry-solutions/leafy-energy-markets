@@ -7,6 +7,7 @@ import Card from '@leafygreen-ui/card';
 import Badge from '@leafygreen-ui/badge';
 import { H2, H3, Subtitle, Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
+import { useDarkMode } from '../../components/Providers';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -75,27 +76,34 @@ function MetricCard({
   label,
   value,
   description,
+  darkMode,
 }: {
   label: string;
   value: number | null | undefined;
   description: string;
+  darkMode: boolean;
 }) {
   const color = scoreColor(value);
+  const labelColor = darkMode ? palette.gray.light1 : palette.gray.dark2;
+  const descColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
+  const trackBg = darkMode ? palette.gray.dark2 : palette.gray.light2;
+
   return (
     <Card
+      darkMode={darkMode}
       className={css`
         flex: 1;
-        min-width: 180px;
-        padding: 20px 24px;
+        min-width: 220px;
+        padding: 24px 28px;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 10px;
       `}
     >
       <Body
         className={css`
           font-weight: 600;
-          color: ${palette.gray.dark2};
+          color: ${labelColor};
           text-transform: uppercase;
           font-size: 11px;
           letter-spacing: 0.06em;
@@ -105,7 +113,7 @@ function MetricCard({
       </Body>
       <div
         className={css`
-          font-size: 36px;
+          font-size: 42px;
           font-weight: 700;
           color: ${color};
           line-height: 1;
@@ -116,9 +124,9 @@ function MetricCard({
       {/* Score bar */}
       <div
         className={css`
-          height: 6px;
-          border-radius: 3px;
-          background: ${palette.gray.light2};
+          height: 8px;
+          border-radius: 4px;
+          background: ${trackBg};
           overflow: hidden;
         `}
       >
@@ -127,14 +135,14 @@ function MetricCard({
             height: 100%;
             width: ${value != null ? Math.round(value * 100) : 0}%;
             background: ${color};
-            border-radius: 3px;
+            border-radius: 4px;
             transition: width 0.6s ease;
           `}
         />
       </div>
       <Body
         className={css`
-          color: ${palette.gray.dark1};
+          color: ${descColor};
           font-size: 12px;
         `}
       >
@@ -160,6 +168,7 @@ function ScoreCell({ value }: { value: number | null | undefined }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function EvalsPage() {
+  const { darkMode } = useDarkMode();
   const [latestRun, setLatestRun] = useState<EvalRun | null>(null);
   const [recentRuns, setRecentRuns] = useState<Omit<EvalRun, 'questions'>[]>([]);
   const [runStatus, setRunStatus] = useState<RunStatus>({
@@ -170,6 +179,14 @@ export default function EvalsPage() {
   });
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Theme-aware colours
+  const textColor = darkMode ? palette.gray.light2 : palette.gray.dark2;
+  const mutedColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
+  const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
+  const rowAltBg = darkMode ? 'rgba(255,255,255,0.03)' : palette.gray.light3;
+  const rowHoverBg = darkMode ? 'rgba(255,255,255,0.06)' : palette.gray.light2;
+  const latestRowBg = darkMode ? 'rgba(255,255,255,0.05)' : palette.gray.light3;
 
   const fetchLatest = async () => {
     try {
@@ -230,10 +247,13 @@ export default function EvalsPage() {
     <div
       className={css`
         padding: 32px 40px;
-        max-width: 1200px;
+        width: 100%;
+        max-width: 1400px;
+        margin: 0 auto;
         display: flex;
         flex-direction: column;
         gap: 28px;
+        box-sizing: border-box;
       `}
     >
       {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -247,10 +267,10 @@ export default function EvalsPage() {
         `}
       >
         <div>
-          <H2>RAGAS Evaluation Dashboard</H2>
+          <H2 darkMode={darkMode}>RAGAS Evaluation Dashboard</H2>
           <Body
             className={css`
-              color: ${palette.gray.dark1};
+              color: ${mutedColor};
               margin-top: 4px;
             `}
           >
@@ -278,6 +298,7 @@ export default function EvalsPage() {
             loadingText="Running…"
             onClick={handleRunEvals}
             disabled={isRunning}
+            darkMode={darkMode}
           >
             Run Evaluations
           </Button>
@@ -290,9 +311,9 @@ export default function EvalsPage() {
           className={css`
             padding: 12px 16px;
             border-radius: 6px;
-            background: ${palette.red.light3};
-            border: 1px solid ${palette.red.light2};
-            color: ${palette.red.dark2};
+            background: ${darkMode ? 'rgba(207,60,60,0.15)' : palette.red.light3};
+            border: 1px solid ${darkMode ? palette.red.dark3 : palette.red.light2};
+            color: ${darkMode ? palette.red.light2 : palette.red.dark2};
             font-size: 14px;
           `}
         >
@@ -304,21 +325,24 @@ export default function EvalsPage() {
       <div
         className={css`
           display: flex;
-          gap: 16px;
+          gap: 20px;
           flex-wrap: wrap;
         `}
       >
         <MetricCard
+          darkMode={darkMode}
           label="Faithfulness"
           value={latestRun?.metrics.faithfulness}
           description="Answer grounded in retrieved context (RAGAS)"
         />
         <MetricCard
+          darkMode={darkMode}
           label="Answer Relevancy"
           value={latestRun?.metrics.answer_relevancy}
           description="Answer relevance to the question (LLM judge)"
         />
         <MetricCard
+          darkMode={darkMode}
           label="Context Relevance"
           value={latestRun?.metrics.context_relevance}
           description="Retrieved docs relevant to the question (LLM judge)"
@@ -328,11 +352,13 @@ export default function EvalsPage() {
       {/* ── Per-question breakdown ───────────────────────────────────────── */}
       {latestRun && latestRun.questions && latestRun.questions.length > 0 && (
         <Card
+          darkMode={darkMode}
           className={css`
             padding: 24px;
           `}
         >
           <H3
+            darkMode={darkMode}
             className={css`
               margin-bottom: 16px;
             `}
@@ -354,7 +380,7 @@ export default function EvalsPage() {
               <thead>
                 <tr
                   className={css`
-                    border-bottom: 2px solid ${palette.gray.light2};
+                    border-bottom: 2px solid ${borderColor};
                     text-align: left;
                   `}
                 >
@@ -365,7 +391,7 @@ export default function EvalsPage() {
                         className={css`
                           padding: 8px 12px;
                           font-weight: 600;
-                          color: ${palette.gray.dark2};
+                          color: ${textColor};
                           white-space: nowrap;
                         `}
                       >
@@ -380,10 +406,10 @@ export default function EvalsPage() {
                   <tr
                     key={q.id}
                     className={css`
-                      border-bottom: 1px solid ${palette.gray.light2};
-                      background: ${i % 2 === 0 ? 'transparent' : palette.gray.light3};
+                      border-bottom: 1px solid ${borderColor};
+                      background: ${i % 2 === 0 ? 'transparent' : rowAltBg};
                       &:hover {
-                        background: ${palette.gray.light2};
+                        background: ${rowHoverBg};
                       }
                     `}
                   >
@@ -391,6 +417,7 @@ export default function EvalsPage() {
                       className={css`
                         padding: 10px 12px;
                         max-width: 340px;
+                        color: ${textColor};
                       `}
                     >
                       <span title={q.question}>
@@ -419,7 +446,7 @@ export default function EvalsPage() {
                       className={css`
                         padding: 10px 12px;
                         text-align: center;
-                        color: ${palette.gray.dark1};
+                        color: ${mutedColor};
                       `}
                     >
                       {q.context_count}
@@ -443,7 +470,7 @@ export default function EvalsPage() {
               className={css`
                 margin-top: 12px;
                 font-size: 12px;
-                color: ${palette.gray.dark1};
+                color: ${mutedColor};
               `}
             >
               Faithfulness scored using RAGAS · Answer Relevancy and Context Relevance scored using LLM judge
@@ -455,11 +482,13 @@ export default function EvalsPage() {
       {/* ── Run history ─────────────────────────────────────────────────── */}
       {recentRuns.length > 0 && (
         <Card
+          darkMode={darkMode}
           className={css`
             padding: 24px;
           `}
         >
           <H3
+            darkMode={darkMode}
             className={css`
               margin-bottom: 16px;
             `}
@@ -482,14 +511,14 @@ export default function EvalsPage() {
                   gap: 16px;
                   padding: 10px 12px;
                   border-radius: 6px;
-                  background: ${i === 0 ? palette.gray.light3 : 'transparent'};
-                  border: 1px solid ${i === 0 ? palette.gray.light2 : 'transparent'};
+                  background: ${i === 0 ? latestRowBg : 'transparent'};
+                  border: 1px solid ${i === 0 ? borderColor : 'transparent'};
                   flex-wrap: wrap;
                 `}
               >
                 <Body
                   className={css`
-                    color: ${palette.gray.dark2};
+                    color: ${textColor};
                     min-width: 200px;
                   `}
                 >
@@ -511,19 +540,19 @@ export default function EvalsPage() {
                   `}
                 >
                   <span>
-                    <span className={css`color: ${palette.gray.dark1};`}>Faithfulness: </span>
+                    <span className={css`color: ${mutedColor};`}>Faithfulness: </span>
                     <strong style={{ color: scoreColor(run.metrics.faithfulness) }}>
                       {fmtScore(run.metrics.faithfulness)}
                     </strong>
                   </span>
                   <span>
-                    <span className={css`color: ${palette.gray.dark1};`}>Ans. Relevancy: </span>
+                    <span className={css`color: ${mutedColor};`}>Ans. Relevancy: </span>
                     <strong style={{ color: scoreColor(run.metrics.answer_relevancy) }}>
                       {fmtScore(run.metrics.answer_relevancy)}
                     </strong>
                   </span>
                   <span>
-                    <span className={css`color: ${palette.gray.dark1};`}>Ctx. Relevance: </span>
+                    <span className={css`color: ${mutedColor};`}>Ctx. Relevance: </span>
                     <strong style={{ color: scoreColor(run.metrics.context_relevance) }}>
                       {fmtScore(run.metrics.context_relevance)}
                     </strong>
@@ -532,7 +561,7 @@ export default function EvalsPage() {
                 <Body
                   className={css`
                     margin-left: auto;
-                    color: ${palette.gray.dark1};
+                    color: ${mutedColor};
                     font-size: 12px;
                   `}
                 >
@@ -547,6 +576,7 @@ export default function EvalsPage() {
       {/* ── Empty state ──────────────────────────────────────────────────── */}
       {!loading && !latestRun && (
         <Card
+          darkMode={darkMode}
           className={css`
             padding: 48px;
             text-align: center;
@@ -556,12 +586,12 @@ export default function EvalsPage() {
             gap: 16px;
           `}
         >
-          <Subtitle>No evaluations run yet</Subtitle>
-          <Body className={css`color: ${palette.gray.dark1}; max-width: 480px;`}>
+          <Subtitle darkMode={darkMode}>No evaluations run yet</Subtitle>
+          <Body className={css`color: ${mutedColor}; max-width: 480px;`}>
             Click <strong>Run Evaluations</strong> to evaluate the RAG pipeline against{' '}
             {6} pre-defined energy market questions using RAGAS faithfulness and LLM judge metrics.
           </Body>
-          <Button variant="primary" onClick={handleRunEvals} disabled={isRunning}>
+          <Button variant="primary" darkMode={darkMode} onClick={handleRunEvals} disabled={isRunning}>
             Run Evaluations
           </Button>
         </Card>

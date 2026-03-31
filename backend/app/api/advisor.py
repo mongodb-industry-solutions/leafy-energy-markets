@@ -28,7 +28,7 @@ def _get_llm():
     azure_endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT")
     if azure_key and azure_endpoint:
         model = os.getenv("AZURE_FOUNDRY_MODEL", "claude-opus-4-6")
-        base_url = azure_endpoint.rstrip("/") + "/anthropic"
+        base_url = azure_endpoint.rstrip("/")
         logger.info("LLM: Azure AI Foundry (%s) at %s", model, base_url)
         return ChatAnthropic(
             model=model,

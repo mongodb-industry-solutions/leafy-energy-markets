@@ -6,23 +6,14 @@ from dotenv import load_dotenv
 # Resolve project root (backend/app/main.py -> backend -> project root)
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-# Snapshot the shell's Anthropic key before loading .env files.
-# deploy/.env uses override=True, which would wipe a valid shell key if the
-# file has ANTHROPIC_API_KEY= blank or absent.
-_shell_anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-
 load_dotenv(os.path.join(_PROJECT_ROOT, 'deploy', '.env'), override=True)
 load_dotenv(os.path.join(_PROJECT_ROOT, 'backend', '.env'), override=True)
 
-# If .env didn't supply a real Anthropic key, restore the shell key so the
-# demo works out-of-the-box without touching deploy/.env.
-if not os.environ.get("ANTHROPIC_API_KEY", "").startswith("sk-ant-") and \
-        _shell_anthropic_key.startswith("sk-ant-"):
-    os.environ["ANTHROPIC_API_KEY"] = _shell_anthropic_key
-
 # Clear shell-level Anthropic SDK env vars that would hijack LLM routing.
-for _var in ("ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"):
-    os.environ.pop(_var, None)
+# The backend manages its own LLM config via deploy/.env.
+for _var in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"):
+    if not os.environ.get(_var, "").startswith("sk-ant-"):
+        os.environ.pop(_var, None)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

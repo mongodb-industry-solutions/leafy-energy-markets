@@ -123,7 +123,7 @@ leafy-energy-markets/
 | CQRS | `/cqrs` | CQRS pattern explainer |
 | Architecture | `/architecture` | System diagram visualization |
 | VPP (3D) | `/telemetry` | Real-time telemetry + Three.js VPP globe |
-| Evals | `/evals` | PromptFoo evaluation dashboard |
+| Evals | `/evals` | RAGAS evaluation dashboard |
 
 ---
 
@@ -177,12 +177,10 @@ npm run lint                 # ESLint
 
 ## EU Compliance Scenarios (Audit Tab)
 
-Four pre-built regulatory replay scenarios in `frontend/lib/compliance-scenarios.ts`:
+Two pre-built regulatory replay scenarios in `frontend/lib/compliance-scenarios.ts`:
 
 1. **Imbalance Settlement Audit** — EU 2017/2195
 2. **REMIT Trade Surveillance** — EU 1227/2011
-3. **Flexibility Market Clearing** — 2019/944
-4. **Cross-Border Capacity Allocation** — CACM 2015/1222
 
 Each scenario has a full event stream that can be replayed step-by-step and analyzed by the LLM audit endpoint.
 

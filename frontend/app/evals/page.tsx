@@ -1,7 +1,7 @@
 'use client';
 
 import { css, keyframes } from '@emotion/css';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '@leafygreen-ui/button';
 import Card from '@leafygreen-ui/card';
 import Badge from '@leafygreen-ui/badge';
@@ -10,7 +10,7 @@ import { H3, Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '../../components/Providers';
 import PageHeader from '@/components/shared/PageHeader';
-import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import TextInput from '@leafygreen-ui/text-input';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -22,11 +22,16 @@ interface QuestionScore {
   answer_preview: string;
   context_count: number;
   tool_calls?: string[];
+  expected_tools?: string[];
   source?: 'user' | 'test';
   scores: {
     faithfulness: number | null;
     answer_relevancy: number | null;
     context_relevance: number | null;
+    topic_adherence: number | null;
+    tool_call_accuracy: number | null;
+    tool_call_f1: number | null;
+    agent_goal_accuracy: number | null;
   };
 }
 
@@ -38,6 +43,10 @@ interface EvalRun {
     faithfulness: number | null;
     answer_relevancy: number | null;
     context_relevance: number | null;
+    topic_adherence: number | null;
+    tool_call_accuracy: number | null;
+    tool_call_f1: number | null;
+    agent_goal_accuracy: number | null;
   };
   questions: QuestionScore[];
   sample_count: number;
@@ -249,6 +258,9 @@ function QuestionRow({
   const faithScore = q.scores.faithfulness;
   const ansRelScore = q.scores.answer_relevancy;
   const ctxRelScore = q.scores.context_relevance;
+  const topicAdh = q.scores.topic_adherence;
+  const toolF1 = q.scores.tool_call_f1;
+  const goalAcc = q.scores.agent_goal_accuracy;
 
   const pipelineSteps = [
     {
@@ -315,11 +327,20 @@ function QuestionRow({
         <td className={css`padding: 10px 12px; text-align: center;`}>
           <span className={css`font-weight: 700; font-size: 13px; color: ${scoreColor(ctxRelScore, darkMode)};`}>{fmtScore(ctxRelScore)}</span>
         </td>
+        <td className={css`padding: 10px 12px; text-align: center;`}>
+          <span className={css`font-weight: 700; font-size: 13px; color: ${scoreColor(topicAdh, darkMode)};`}>{fmtScore(topicAdh)}</span>
+        </td>
+        <td className={css`padding: 10px 12px; text-align: center;`}>
+          <span className={css`font-weight: 700; font-size: 13px; color: ${scoreColor(toolF1, darkMode)};`}>{fmtScore(toolF1)}</span>
+        </td>
+        <td className={css`padding: 10px 12px; text-align: center;`}>
+          <span className={css`font-weight: 700; font-size: 13px; color: ${scoreColor(goalAcc, darkMode)};`}>{fmtScore(goalAcc)}</span>
+        </td>
       </tr>
 
       {open && (
         <tr className={css`border-bottom: 1px solid ${borderColor};`}>
-          <td colSpan={7} className={css`padding: 0;`}>
+          <td colSpan={10} className={css`padding: 0;`}>
             <div className={css`padding: 16px 20px 20px; background: ${expandBg}; animation: ${fadeIn} 0.15s ease;`}>
               <div className={css`display: grid; grid-template-columns: 1fr 1fr; gap: 20px;`}>
 
@@ -396,7 +417,10 @@ function QuestionRow({
                         { label: 'Faithfulness', key: 'faithfulness', v: faithScore },
                         { label: 'Answer Relevancy', key: 'answer_relevancy', v: ansRelScore },
                         { label: 'Context Relevance', key: 'context_relevance', v: ctxRelScore },
-                      ].map(({ label, key, v }) => (
+                        { label: 'Topic Adherence', key: 'topic_adherence', v: topicAdh },
+                        { label: 'Tool Call F1', key: 'tool_call_f1', v: toolF1 },
+                        { label: 'Agent Goal Accuracy', key: 'agent_goal_accuracy', v: goalAcc },
+                      ].filter(({ v }) => v != null).map(({ label, key, v }) => (
                         <div key={key}>
                           <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 3px;`}>
                             <span className={css`font-size: 11px; font-weight: 600; color: ${mutedColor}; min-width: 130px;`}>{label}</span>
@@ -424,13 +448,12 @@ function QuestionRow({
 
 // ── Term Bubble helpers ───────────────────────────────────────────────────────
 
-interface TermBubble {
+interface TermHallucinationData {
   term: string;
-  count: number;
+  avgFaithfulness: number | null;
+  queryCount: number;
+  evalCount: number;
   tools: string[];
-  x: number;
-  y: number;
-  z: number;
 }
 
 const STOP_WORDS = new Set([
@@ -443,32 +466,79 @@ const STOP_WORDS = new Set([
   'between','out','off','over','under','again','then','here','there','s','t',
 ]);
 
-function extractTerms(interactions: AdvisorInteraction[]): TermBubble[] {
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !STOP_WORDS.has(w));
+}
+
+function extractHallucinationTerms(
+  interactions: AdvisorInteraction[],
+  evalQuestions: QuestionScore[],
+): TermHallucinationData[] {
+  // Frequency + tool usage from real advisor interactions
   const freq: Record<string, { count: number; tools: Set<string> }> = {};
   for (const item of interactions) {
-    const words = item.question
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 3 && !STOP_WORDS.has(w));
-    for (const word of words) {
+    for (const word of tokenize(item.question)) {
       if (!freq[word]) freq[word] = { count: 0, tools: new Set() };
       freq[word].count++;
       for (const t of item.tool_calls ?? []) freq[word].tools.add(t);
     }
   }
+
+  // Faithfulness scores per term from eval questions
+  const faithMap: Record<string, number[]> = {};
+  for (const q of evalQuestions) {
+    if (q.scores.faithfulness == null) continue;
+    const seen = new Set<string>();
+    for (const word of tokenize(q.question)) {
+      if (seen.has(word)) continue;
+      seen.add(word);
+      if (!faithMap[word]) faithMap[word] = [];
+      faithMap[word].push(q.scores.faithfulness);
+    }
+  }
+
+  const hasEvalData = Object.keys(faithMap).length > 0;
+
+  if (hasEvalData) {
+    // Sort by avg faithfulness ascending — worst (most hallucination) first
+    return Object.entries(faithMap)
+      .map(([term, scores]) => {
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const interData = freq[term];
+        return {
+          term,
+          avgFaithfulness: avg,
+          queryCount: interData?.count ?? 0,
+          evalCount: scores.length,
+          tools: interData ? [...interData.tools] : [],
+        };
+      })
+      .sort((a, b) => (a.avgFaithfulness ?? 1) - (b.avgFaithfulness ?? 1))
+      .slice(0, 15);
+  }
+
+  // Fallback: just frequency when no eval faithfulness data yet
   return Object.entries(freq)
-    .filter(([, v]) => v.count >= 1)
     .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 30)
-    .map(([term, v], i) => ({
+    .slice(0, 15)
+    .map(([term, v]) => ({
       term,
-      count: v.count,
+      avgFaithfulness: null,
+      queryCount: v.count,
+      evalCount: 0,
       tools: [...v.tools],
-      x: (i % 6) * 18 + Math.random() * 8,
-      y: Math.floor(i / 6) * 25 + Math.random() * 10,
-      z: v.count * 400,
     }));
+}
+
+function termBarColor(v: number | null): string {
+  if (v == null) return palette.green.base;
+  if (v < 0.5) return palette.red.base;
+  if (v < 0.7) return palette.yellow.dark2;
+  return palette.green.base;
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -553,7 +623,11 @@ export default function EvalsPage() {
     (currentPage - 1) * PAGE_SIZE,
     currentPage * PAGE_SIZE,
   );
-  const termBubbles = extractTerms(interactions);
+  const hallucinationTerms = useMemo(
+    () => extractHallucinationTerms(interactions, latestRun?.questions ?? []),
+    [interactions, latestRun],
+  );
+  const hasEvalFaithfulness = hallucinationTerms.some(t => t.avgFaithfulness != null);
 
   return (
     <div className={css`display: flex; flex-direction: column; gap: 24px;`}>
@@ -588,12 +662,22 @@ export default function EvalsPage() {
         </div>
       )}
 
-      {/* Metric cards */}
+      {/* Metric cards — RAG quality */}
       <div className={css`display: flex; gap: 16px; flex-wrap: wrap;`}>
         <MetricCard darkMode={darkMode} metricKey="faithfulness" label="Faithfulness" value={latestRun?.metrics.faithfulness} />
         <MetricCard darkMode={darkMode} metricKey="answer_relevancy" label="Answer Relevancy" value={latestRun?.metrics.answer_relevancy} />
         <MetricCard darkMode={darkMode} metricKey="context_relevance" label="Context Relevance" value={latestRun?.metrics.context_relevance} />
       </div>
+
+      {/* Metric cards — Agent / tool use */}
+      {latestRun && (latestRun.metrics.topic_adherence != null || latestRun.metrics.tool_call_f1 != null) && (
+        <div className={css`display: flex; gap: 16px; flex-wrap: wrap;`}>
+          <MetricCard darkMode={darkMode} metricKey="topic_adherence" label="Topic Adherence" value={latestRun?.metrics.topic_adherence} />
+          <MetricCard darkMode={darkMode} metricKey="tool_call_accuracy" label="Tool Call Accuracy" value={latestRun?.metrics.tool_call_accuracy} />
+          <MetricCard darkMode={darkMode} metricKey="tool_call_f1" label="Tool Call F1" value={latestRun?.metrics.tool_call_f1} />
+          <MetricCard darkMode={darkMode} metricKey="agent_goal_accuracy" label="Agent Goal Accuracy" value={latestRun?.metrics.agent_goal_accuracy} />
+        </div>
+      )}
 
       {/* ── Per-question breakdown with search + pagination ─── */}
       {latestRun && latestRun.questions && latestRun.questions.length > 0 && (
@@ -622,7 +706,7 @@ export default function EvalsPage() {
               <thead>
                 <tr className={css`border-bottom: 2px solid ${borderColor}; text-align: left;`}>
                   <th className={css`padding: 8px 12px; width: 18px;`} />
-                  {['Question', 'Category', 'Contexts', 'Faithfulness', 'Ans. Relevancy', 'Ctx. Relevance'].map(h => (
+                  {['Question', 'Category', 'Contexts', 'Faithful', 'Ans. Rel.', 'Ctx. Rel.', 'Topic Adh.', 'Tool F1', 'Goal Acc.'].map(h => (
                     <th key={h} className={css`padding: 8px 12px; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: ${textColor}; white-space: nowrap;`}>
                       {h}
                     </th>
@@ -642,7 +726,7 @@ export default function EvalsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className={css`padding: 20px 12px; text-align: center; color: ${mutedColor}; font-size: 13px;`}>
+                    <td colSpan={10} className={css`padding: 20px 12px; text-align: center; color: ${mutedColor}; font-size: 13px;`}>
                       No questions match "{searchQuery}"
                     </td>
                   </tr>
@@ -685,42 +769,89 @@ export default function EvalsPage() {
             </div>
           )}
 
-          {latestRun.ragas_faithfulness && (
-            <Body className={css`margin-top: 12px; font-size: 12px; color: ${mutedColor};`}>
-              Faithfulness scored using RAGAS decomposition · Answer Relevancy and Context Relevance scored using LLM judge
-            </Body>
-          )}
+          <Body className={css`margin-top: 12px; font-size: 12px; color: ${mutedColor};`}>
+            {latestRun.ragas_faithfulness
+              ? 'Faithfulness: RAGAS decomposition · All other metrics: LLM judge'
+              : 'All metrics scored by LLM judge (install ragas for RAGAS-native faithfulness)'}
+            {' · Topic Adherence, Agent Goal Accuracy, Tool Call F1: RAGAS agent metrics'}
+          </Body>
         </Card>
       )}
 
-      {/* ── Query Terms Bubble Chart ─────────────────────────── */}
-      {interactions.length > 0 && termBubbles.length > 0 && (
+      {/* ── Hallucination Term Analysis ──────────────────────── */}
+      {interactions.length > 0 && hallucinationTerms.length > 0 && (
         <Card darkMode={darkMode} className={css`padding: 24px;`}>
           <div className={css`margin-bottom: 16px;`}>
-            <H3 darkMode={darkMode}>Query Term Analysis</H3>
+            <H3 darkMode={darkMode}>Hallucination Risk by Query Term</H3>
             <Body className={css`color: ${mutedColor}; font-size: 12px; margin-top: 4px;`}>
-              Most frequent terms across {interactions.length} EnerLeafy AI queries — bubble size = frequency. Hover for details.
+              {hasEvalFaithfulness
+                ? `Terms from eval questions ranked by avg faithfulness — red bars indicate hallucination risk. Based on ${interactions.length} advisor queries and ${latestRun?.questions?.length ?? 0} eval cases.`
+                : `Top query terms from ${interactions.length} EnerLeafy AI queries. Run evaluations to see hallucination risk scores.`}
             </Body>
           </div>
-          <div className={css`display: grid; grid-template-columns: 1fr 280px; gap: 24px; align-items: start;`}>
-            {/* Bubble scatter chart */}
-            <div style={{ height: 320 }}>
+
+          <div className={css`display: grid; grid-template-columns: 1fr 220px; gap: 24px; align-items: start;`}>
+            {/* Horizontal bar chart */}
+            <div style={{ height: Math.max(280, hallucinationTerms.length * 34) }}>
               <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
-                  <XAxis dataKey="x" type="number" hide />
-                  <YAxis dataKey="y" type="number" hide />
-                  <ZAxis dataKey="z" range={[100, 2000]} />
+                <BarChart
+                  layout="vertical"
+                  data={hallucinationTerms}
+                  margin={{ top: 4, right: 56, bottom: 4, left: 8 }}
+                  barCategoryGap="20%"
+                >
+                  <CartesianGrid
+                    horizontal={false}
+                    strokeDasharray="3 3"
+                    stroke={darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}
+                  />
+                  <XAxis
+                    type="number"
+                    domain={hasEvalFaithfulness ? [0, 1] : [0, 'auto']}
+                    tickFormatter={hasEvalFaithfulness ? v => `${Math.round(v * 100)}%` : undefined}
+                    tick={{ fontSize: 10, fill: mutedColor }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="term"
+                    width={90}
+                    tick={{ fontSize: 12, fill: textColor, fontWeight: 600 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  {hasEvalFaithfulness && (
+                    <ReferenceLine
+                      x={0.7}
+                      stroke={darkMode ? palette.yellow.light2 : palette.yellow.dark2}
+                      strokeDasharray="4 3"
+                      label={{ value: '70%', position: 'top', fontSize: 10, fill: mutedColor }}
+                    />
+                  )}
                   <Tooltip
-                    cursor={false}
+                    cursor={{ fill: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
-                      const d = payload[0].payload as TermBubble;
+                      const d = payload[0].payload as TermHallucinationData;
                       return (
-                        <div className={css`background: ${darkMode ? palette.gray.dark3 : palette.white}; border: 1px solid ${borderColor}; border-radius: 6px; padding: 8px 12px; font-size: 12px; color: ${textColor}; box-shadow: 0 4px 12px rgba(0,0,0,0.15);`}>
-                          <div className={css`font-weight: 700; margin-bottom: 4px;`}>{d.term}</div>
-                          <div className={css`color: ${mutedColor};`}>Appears in {d.count} question{d.count > 1 ? 's' : ''}</div>
+                        <div className={css`background: ${darkMode ? palette.gray.dark3 : palette.white}; border: 1px solid ${borderColor}; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: ${textColor}; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 180px;`}>
+                          <div className={css`font-weight: 700; font-size: 13px; margin-bottom: 6px;`}>&ldquo;{d.term}&rdquo;</div>
+                          {d.avgFaithfulness != null && (
+                            <div className={css`margin-bottom: 3px;`}>
+                              <span className={css`color: ${mutedColor};`}>Avg faithfulness: </span>
+                              <span className={css`font-weight: 600; color: ${termBarColor(d.avgFaithfulness)};`}>{Math.round(d.avgFaithfulness * 100)}%</span>
+                              {d.avgFaithfulness < 0.5 && <span className={css`margin-left: 6px; color: ${palette.red.base}; font-size: 11px;`}>⚠ High hallucination risk</span>}
+                            </div>
+                          )}
+                          {d.evalCount > 0 && (
+                            <div className={css`color: ${mutedColor};`}>Appears in {d.evalCount} eval question{d.evalCount > 1 ? 's' : ''}</div>
+                          )}
+                          {d.queryCount > 0 && (
+                            <div className={css`color: ${mutedColor};`}>Asked {d.queryCount}× by users</div>
+                          )}
                           {d.tools.length > 0 && (
-                            <div className={css`margin-top: 4px; color: ${darkMode ? palette.green.light1 : palette.green.dark1};`}>
+                            <div className={css`margin-top: 5px; padding-top: 5px; border-top: 1px solid ${borderColor}; color: ${darkMode ? palette.green.light1 : palette.green.dark1};`}>
                               Tools: {d.tools.map(t => TOOL_LABELS[t] || t).join(', ')}
                             </div>
                           )}
@@ -728,47 +859,44 @@ export default function EvalsPage() {
                       );
                     }}
                   />
-                  <Scatter
-                    data={termBubbles}
-                    fill={palette.green.base}
-                    fillOpacity={0.7}
-                    label={({ cx, cy, payload }: { cx: number; cy: number; payload: TermBubble }) => {
-                      const fontSize = Math.max(8, Math.min(13, 8 + payload.count * 1.5));
-                      return (
-                        <text
-                          x={cx}
-                          y={cy}
-                          textAnchor="middle"
-                          dominantBaseline="middle"
-                          style={{ fontSize, fontWeight: 600, fill: darkMode ? palette.white : palette.gray.dark3, pointerEvents: 'none' }}
-                        >
-                          {payload.term.length > 10 ? payload.term.slice(0, 10) + '…' : payload.term}
-                        </text>
-                      );
-                    }}
-                  />
-                </ScatterChart>
+                  <Bar
+                    dataKey={hasEvalFaithfulness ? 'avgFaithfulness' : 'queryCount'}
+                    radius={[0, 4, 4, 0]}
+                    maxBarSize={22}
+                  >
+                    {hallucinationTerms.map(entry => (
+                      <Cell key={entry.term} fill={termBarColor(entry.avgFaithfulness)} fillOpacity={0.85} />
+                    ))}
+                    <LabelList
+                      dataKey={hasEvalFaithfulness ? 'avgFaithfulness' : 'queryCount'}
+                      position="right"
+                      formatter={(v: number) => hasEvalFaithfulness ? `${Math.round(v * 100)}%` : `${v}×`}
+                      style={{ fill: mutedColor, fontSize: 11 }}
+                    />
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
             </div>
 
-            {/* Top terms sidebar */}
+            {/* Sidebar: legend + tool usage */}
             <div>
-              <div className={css`font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: ${mutedColor}; margin-bottom: 10px;`}>
-                Top Terms
-              </div>
-              <div className={css`display: flex; flex-direction: column; gap: 6px;`}>
-                {termBubbles.slice(0, 10).map((b, i) => (
-                  <div key={b.term} className={css`display: flex; align-items: center; gap: 8px;`}>
-                    <span className={css`font-size: 10px; color: ${mutedColor}; width: 14px; text-align: right;`}>{i + 1}</span>
-                    <div className={css`flex: 1; height: 4px; border-radius: 2px; background: ${darkMode ? palette.gray.dark2 : palette.gray.light2};`}>
-                      <div className={css`height: 100%; width: ${Math.round((b.count / (termBubbles[0]?.count || 1)) * 100)}%; background: ${palette.green.base}; border-radius: 2px; transition: width 0.4s ease;`} />
+              {hasEvalFaithfulness && (
+                <div className={css`margin-bottom: 16px;`}>
+                  <div className={css`font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: ${mutedColor}; margin-bottom: 8px;`}>Faithfulness Legend</div>
+                  {[
+                    { label: '< 50% — High risk', color: palette.red.base },
+                    { label: '50–70% — Moderate', color: palette.yellow.dark2 },
+                    { label: '> 70% — Low risk', color: palette.green.base },
+                  ].map(row => (
+                    <div key={row.label} className={css`display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; color: ${textColor};`}>
+                      <div className={css`width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; background: ${row.color};`} />
+                      {row.label}
                     </div>
-                    <span className={css`font-size: 12px; font-weight: 600; color: ${textColor}; min-width: 80px;`}>{b.term}</span>
-                    <span className={css`font-size: 11px; color: ${mutedColor}; min-width: 20px; text-align: right;`}>{b.count}×</span>
-                  </div>
-                ))}
-              </div>
-              <div className={css`margin-top: 16px; padding-top: 12px; border-top: 1px solid ${borderColor};`}>
+                  ))}
+                </div>
+              )}
+
+              <div className={css`padding-top: ${hasEvalFaithfulness ? '12px' : '0'}; border-top: ${hasEvalFaithfulness ? `1px solid ${borderColor}` : 'none'};`}>
                 <div className={css`font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: ${mutedColor}; margin-bottom: 8px;`}>
                   Tool Usage
                 </div>
@@ -779,13 +907,19 @@ export default function EvalsPage() {
                       toolCounts[t] = (toolCounts[t] ?? 0) + 1;
                     }
                   }
+                  const total = Object.values(toolCounts).reduce((a, b) => a + b, 0) || 1;
                   return Object.entries(toolCounts)
                     .sort((a, b) => b[1] - a[1])
                     .slice(0, 6)
                     .map(([tool, count]) => (
-                      <div key={tool} className={css`display: flex; align-items: center; justify-content: space-between; padding: 3px 0;`}>
-                        <span className={css`font-size: 11px; color: ${textColor};`}>{TOOL_LABELS[tool] || tool}</span>
-                        <span className={css`font-size: 11px; font-weight: 600; color: ${darkMode ? palette.green.light1 : palette.green.dark1};`}>{count}×</span>
+                      <div key={tool} className={css`margin-bottom: 6px;`}>
+                        <div className={css`display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;`}>
+                          <span className={css`color: ${textColor};`}>{TOOL_LABELS[tool] || tool}</span>
+                          <span className={css`color: ${mutedColor};`}>{count}×</span>
+                        </div>
+                        <div className={css`height: 3px; border-radius: 2px; background: ${darkMode ? palette.gray.dark2 : palette.gray.light2};`}>
+                          <div className={css`height: 100%; width: ${Math.round((count / total) * 100)}%; background: ${darkMode ? palette.green.light1 : palette.green.dark1}; border-radius: 2px;`} />
+                        </div>
                       </div>
                     ));
                 })()}

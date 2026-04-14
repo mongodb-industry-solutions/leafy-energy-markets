@@ -153,7 +153,7 @@ export default function VesselTrackingMap() {
         `}
       >
         <iframe
-          src="https://www.global-energy-flow.com/"
+          src="https://global-energy-flow.com/"
           title="Global Energy Flow — Live Tanker Tracking"
           style={{ width: '100%', height: '100%', border: 'none' }}
           allow="fullscreen"
@@ -161,7 +161,7 @@ export default function VesselTrackingMap() {
         />
         {/* Fallback open button — visible even if iframe blocks embedding */}
         <a
-          href="https://www.global-energy-flow.com/"
+          href="https://global-energy-flow.com/"
           target="_blank"
           rel="noopener noreferrer"
           className={css`

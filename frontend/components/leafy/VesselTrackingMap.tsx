@@ -2,12 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { css, keyframes } from '@emotion/css';
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, Marker, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import Badge from '@leafygreen-ui/badge';
 import { palette } from '@leafygreen-ui/palette';
-// LeafyGreen typography available if needed
 import { useDarkMode } from '@/components/Providers';
 import {
   routes,
@@ -51,46 +47,9 @@ const ANIM_INTERVAL_MS = 600;
 const BASE_SPEED = 14.0;
 const PROGRESS_PER_TICK = 0.10;
 
-const DARK_TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-const LIGHT_TILES = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>';
-
-function createVesselIcon(heading: number, color: string): L.DivIcon {
-  const svg = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-    <g transform="rotate(${heading}, 12, 12)">
-      <polygon points="12,2 6,20 12,16 18,20" fill="${color}" stroke="#000" stroke-width="1" opacity="0.9"/>
-    </g>
-  </svg>`;
-  return L.divIcon({
-    html: svg,
-    className: '',
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-  });
-}
-
-/** Auto-fit map bounds to all vessel positions + origin ports */
-function FitBounds({ vessels }: { vessels: Vessel[] }) {
-  const map = useMap();
-
-  useEffect(() => {
-    const points: [number, number][] = [];
-    // Add all vessel positions
-    vessels.forEach((v) => points.push([v.position.lat, v.position.lng]));
-    // Add all origin port positions
-    Object.values(routes).forEach((wps) => {
-      points.push([wps[0].lat, wps[0].lng]);
-    });
-    // Add Rotterdam
-    points.push([51.95, 4.12]);
-
-    if (points.length > 0) {
-      const bounds = L.latLngBounds(points);
-      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 5 });
-    }
-  }, []); // fit once on mount
-
-  return null;
+/** Only include vessels currently in European/near-European waters */
+function isInEuropeanWaters(v: Vessel): boolean {
+  return v.position.lat > 30 && v.position.lng > -20;
 }
 
 export default function VesselTrackingMap() {
@@ -128,33 +87,13 @@ export default function VesselTrackingMap() {
     return () => clearInterval(interval);
   }, [disruptionActive, disruption]);
 
-  const routePolylines = useMemo(
-    () =>
-      Object.entries(routes).map(([id, wps]) => ({
-        id,
-        positions: wps.map((wp): [number, number] => [wp.lat, wp.lng]),
-        color: routeColor[id] || '#4da6ff',
-      })),
-    []
+  // Oil/gas tankers in European waters, max 10 for the tile panel
+  const europeanVessels = useMemo(
+    () => vessels.filter(isInEuropeanWaters).slice(0, 10),
+    [vessels]
   );
 
-  const rotterdam = { lat: 51.95, lng: 4.12 };
-
-  // Collect unique origin ports (deduplicate by label)
-  const originPorts = useMemo(() => {
-    const seen = new Set<string>();
-    const ports: { lat: number; lng: number; label: string; routeId: string }[] = [];
-    Object.entries(routes).forEach(([id, wps]) => {
-      const origin = wps[0];
-      if (origin.label && !seen.has(origin.label)) {
-        seen.add(origin.label);
-        ports.push({ lat: origin.lat, lng: origin.lng, label: origin.label, routeId: id });
-      }
-    });
-    return ports;
-  }, []);
-
-  const tileUrl = darkMode ? DARK_TILES : LIGHT_TILES;
+  const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const labelColor = darkMode ? palette.white : palette.black;
   const textColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
 
@@ -166,9 +105,9 @@ export default function VesselTrackingMap() {
       {/* Map title */}
       <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;`}>
         <span className={css`color: ${labelColor}; font-weight: 600; font-size: 14px;`}>
-          European Energy Supply — Vessels Bound for Rotterdam
+          European Energy Supply — Live Global Energy Flow
         </span>
-        <Badge variant="red">{fleetSummary.totalVessels} vessels</Badge>
+        <Badge variant="red">{europeanVessels.length} tracked near Rotterdam</Badge>
         {totalBbl > 0 && <Badge variant="blue">{(totalBbl / 1_000_000).toFixed(2)}M bbl</Badge>}
         {totalLNG > 0 && <Badge variant="green">{(totalLNG / 1_000).toFixed(0)}k m³ LNG</Badge>}
         <div className={css`
@@ -201,7 +140,7 @@ export default function VesselTrackingMap() {
         </div>
       )}
 
-      {/* Leaflet Map */}
+      {/* Global Energy Flow iframe map */}
       <div
         className={css`
           height: 45vh;
@@ -209,97 +148,48 @@ export default function VesselTrackingMap() {
           min-height: 280px;
           border-radius: 8px;
           overflow: hidden;
-          border: 1px solid ${darkMode ? palette.gray.dark2 : palette.gray.light2};
-          .leaflet-container { height: 100%; width: 100%; }
+          border: 1px solid ${borderColor};
+          position: relative;
         `}
       >
-        <MapContainer
-          center={[42, 8]}
-          zoom={3}
-          style={{ height: '100%', width: '100%' }}
-          zoomControl={true}
-          scrollWheelZoom={true}
+        <iframe
+          src="https://www.global-energy-flow.com/"
+          title="Global Energy Flow — Live Tanker Tracking"
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          allow="fullscreen"
+          loading="lazy"
+        />
+        {/* Fallback open button — visible even if iframe blocks embedding */}
+        <a
+          href="https://www.global-energy-flow.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={css`
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            z-index: 10;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            text-decoration: none;
+            background: ${darkMode ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.85)'};
+            color: ${darkMode ? palette.gray.light2 : palette.gray.dark2};
+            border: 1px solid ${borderColor};
+            backdrop-filter: blur(4px);
+            transition: opacity 0.15s;
+            &:hover { opacity: 0.85; }
+          `}
         >
-          <FitBounds vessels={vessels} />
-          <TileLayer
-            key={tileUrl}
-            attribution={TILE_ATTR}
-            url={tileUrl}
-          />
-
-          {/* Route polylines */}
-          {routePolylines.map((r) => (
-            <Polyline
-              key={r.id}
-              positions={r.positions}
-              pathOptions={{
-                color: r.color,
-                weight: 1.5,
-                dashArray: '6, 4',
-                opacity: 0.35,
-              }}
-            />
-          ))}
-
-          {/* Origin port markers */}
-          {originPorts.map((port) => (
-            <CircleMarker
-              key={`origin-${port.label}`}
-              center={[port.lat, port.lng]}
-              radius={4}
-              pathOptions={{ color: '#fff', fillColor: routeColor[port.routeId] || palette.green.base, fillOpacity: 1, weight: 1.5 }}
-            >
-              <Tooltip permanent direction="right" offset={[6, 0]}>
-                <span style={{ fontSize: 10, fontWeight: 600 }}>{port.label}</span>
-              </Tooltip>
-            </CircleMarker>
-          ))}
-
-          {/* Rotterdam destination marker */}
-          <CircleMarker
-            center={[rotterdam.lat, rotterdam.lng]}
-            radius={7}
-            pathOptions={{ color: '#fff', fillColor: palette.red.base, fillOpacity: 1, weight: 2 }}
-          >
-            <Tooltip permanent direction="right" offset={[10, 0]}>
-              <span style={{ fontSize: 11, fontWeight: 700 }}>Rotterdam Europoort</span>
-            </Tooltip>
-          </CircleMarker>
-
-          {/* Vessel markers — colored by route */}
-          {vessels.map((v) => (
-            <Marker
-              key={v.id}
-              position={[v.position.lat, v.position.lng]}
-              icon={createVesselIcon(
-                v.heading,
-                v.status === 'at-anchor' ? statusColor['at-anchor'] : (routeColor[v.routeId || 'norway'] || '#4da6ff')
-              )}
-            >
-              <Tooltip direction="top" offset={[0, -14]}>
-                <div style={{ fontSize: 12, lineHeight: 1.4 }}>
-                  <strong>{v.name}</strong><br />
-                  IMO: {v.imo}<br />
-                  <span style={{ color: '#0066cc', fontWeight: 600 }}>{cargoType(v)}</span><br />
-                  {v.cargo.map((c, i) => (
-                    <span key={i}>
-                      {c.grade} — {c.volumeCubicMeters
-                        ? `${(c.volumeCubicMeters / 1000).toFixed(0)}k m³`
-                        : `${(c.volumeBarrels / 1000).toFixed(0)}k bbl`}
-                      <br />
-                    </span>
-                  ))}
-                  {v.origin} → Rotterdam<br />
-                  Speed: {v.speedKnots} kn | Hdg: {v.heading.toFixed(0)}°<br />
-                  ETA: {v.eta}
-                </div>
-              </Tooltip>
-            </Marker>
-          ))}
-        </MapContainer>
+          ↗ Open Global Energy Flow
+        </a>
       </div>
 
-      {/* Info panel below map */}
+      {/* Vessel tiles — oil/gas tankers near Europe, max 10 */}
       <div
         className={css`
           display: grid;
@@ -308,7 +198,7 @@ export default function VesselTrackingMap() {
           margin-top: 6px;
         `}
       >
-        {vessels.map((v) => (
+        {europeanVessels.map((v) => (
           <div
             key={v.id}
             className={css`

@@ -314,6 +314,101 @@ def _build_agent(coll, portfolio: list[PositionInput], generators: list[Generato
         return "\n".join(lines)
 
     @tool
+    def get_energy_prices() -> str:
+        """Fetch live energy commodity prices: Brent crude, WTI crude, TTF natural gas, and Henry Hub gas. Returns current spot prices with recent change data."""
+        import httpx
+        lines = []
+
+        # EIA petroleum spot prices (free, no key required for public endpoints)
+        eia_key = os.getenv("EIA_API_KEY", "")
+        try:
+            params: dict = {
+                "frequency": "daily",
+                "data[0]": "value",
+                "sort[0][column]": "period",
+                "sort[0][direction]": "desc",
+                "length": 2,
+            }
+            if eia_key:
+                params["api_key"] = eia_key
+            resp = httpx.get(
+                "https://api.eia.gov/v2/petroleum/pri/spt/data/",
+                params=params,
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                data = resp.json().get("response", {}).get("data", [])
+                seen: set[str] = set()
+                for row in data:
+                    name = row.get("series-description", row.get("product-name", ""))
+                    val = row.get("value")
+                    period = row.get("period", "")
+                    key = row.get("product", name)
+                    if key not in seen and val is not None:
+                        seen.add(key)
+                        lines.append(f"- {name}: ${val:.2f}/bbl ({period})")
+        except Exception as e:
+            lines.append(f"EIA API unavailable: {e}")
+
+        # Fallback: web search for current prices if EIA returned nothing
+        if not lines:
+            try:
+                from ddgs import DDGS
+                with DDGS() as ddgs:
+                    results = list(ddgs.text("Brent crude WTI TTF natural gas spot price today USD", max_results=3))
+                for r in results:
+                    lines.append(f"- {r.get('title', '')}: {r.get('body', '')[:200]}")
+            except Exception as e:
+                lines.append(f"Price data unavailable: {e}")
+
+        return "\n".join(lines) if lines else "Energy price data currently unavailable."
+
+    @tool
+    def get_energy_news(topic: str = "European energy markets") -> str:
+        """Fetch the latest energy market news headlines. Use this for breaking news on oil prices, gas supply, EU energy policy, OPEC decisions, or LNG markets."""
+        import httpx
+        news_key = os.getenv("NEWS_API_KEY", "")
+        lines = []
+
+        if news_key:
+            try:
+                resp = httpx.get(
+                    "https://newsapi.org/v2/everything",
+                    params={
+                        "q": topic,
+                        "language": "en",
+                        "sortBy": "publishedAt",
+                        "pageSize": 5,
+                        "apiKey": news_key,
+                    },
+                    timeout=8,
+                )
+                if resp.status_code == 200:
+                    articles = resp.json().get("articles", [])
+                    for a in articles:
+                        title = a.get("title", "")
+                        source = a.get("source", {}).get("name", "")
+                        desc = a.get("description", "")[:160]
+                        published = a.get("publishedAt", "")[:10]
+                        lines.append(f"- [{published}] **{title}** ({source}): {desc}")
+            except Exception as e:
+                lines.append(f"NewsAPI unavailable: {e}")
+
+        # Fallback: DuckDuckGo news search
+        if not lines:
+            try:
+                from ddgs import DDGS
+                with DDGS() as ddgs:
+                    results = list(ddgs.news(topic, max_results=5))
+                for r in results:
+                    date = str(r.get("date", ""))[:10]
+                    lines.append(f"- [{date}] **{r.get('title', '')}** ({r.get('source', '')}): {r.get('body', '')[:160]}")
+            except Exception as e:
+                lines.append(f"News search unavailable: {e}")
+
+        return "\n".join(lines) if lines else "No energy news found for the requested topic."
+
+    @tool
     def web_search(query: str) -> str:
         """Search the web for real-time information about energy markets, oil prices, geopolitical events, weather, or any current topic. Use this when the document database doesn't have current information."""
         try:
@@ -329,7 +424,7 @@ def _build_agent(coll, portfolio: list[PositionInput], generators: list[Generato
         except Exception as e:
             return f"Web search unavailable: {e}"
 
-    domain_tools = [search_policies, search_market_intel, analyze_portfolio, get_generator_status, web_search]
+    domain_tools = [search_policies, search_market_intel, analyze_portfolio, get_generator_status, get_energy_prices, get_energy_news, web_search]
     all_tools = domain_tools + (mcp_tools or [])
 
     mcp_section = ""
@@ -350,10 +445,12 @@ Call tools in your FIRST action ONLY. Call ALL needed tools SIMULTANEOUSLY in on
 REQUIRED for every question (call all at once in first action):
 1. analyze_portfolio — current positions, P&L, and risk
 2. search_policies — relevant EU/IEA regulations
-3. web_search — ONE comprehensive query for latest market data
+3. get_energy_prices — live Brent/WTI/TTF/Henry Hub spot prices from EIA
+4. get_energy_news — latest energy market headlines (topic: the user's question)
 Optional (only if needed):
-4. get_generator_status — only if the question is about power supply
-5. search_market_intel — only if specific research or ESG data is needed
+5. web_search — ONE comprehensive query for additional real-time context not covered by prices/news
+6. get_generator_status — only if the question is about power supply or generation capacity
+7. search_market_intel — only if specific research, ESG, or maritime data is needed
 After receiving ALL tool results, write your complete final answer. Do NOT call more tools after receiving results unless critically needed for a specific fact you don't have.
 
 ## INLINE RICH ELEMENTS

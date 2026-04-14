@@ -1,73 +1,119 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useMarkdownElements } from 'ai-sdk-elements/react';
+import React, { useMemo } from 'react';
+import { css } from '@emotion/css';
 import { Streamdown } from 'streamdown';
 import 'streamdown/styles.css';
-import { findMarkers } from 'ai-sdk-elements';
-import type { UIMessage } from 'ai';
-import { elementUIs } from '@/lib/elements-ui';
+import {
+  renderSourceRef,
+  renderPriceCard,
+  renderPositionCard,
+  renderRiskAlert,
+} from '@/lib/elements-ui';
+import { useDarkMode } from '@/components/Providers';
+
+// Match @element_name{...json...} — handles one level of nested braces
+const MARKER_RE = /@([\w]+)\{((?:[^{}]|\{[^{}]*\})*)\}/g;
+
+/**
+ * Normalise markdown so Streamdown renders headings and code blocks correctly.
+ *
+ * Fixes applied:
+ *  1. Headings — LLMs sometimes emit "text### Heading" without a blank line.
+ *     Most parsers require ≥1 blank line before a heading.
+ *  2. Loose language labels — LLMs sometimes write "json\n```\n..." instead of
+ *     "```json\n...". We collapse them so the language label is part of the fence.
+ */
+function normalizeMarkdown(text: string): string {
+  let result = text;
+  // 1. Ensure headings have a blank line before them
+  result = result.replace(/([^\n])\n?(#{1,6} )/g, '$1\n\n$2');
+  // 2. Collapse "word\n```\n" → "```word\n" (loose language label before code fence)
+  result = result.replace(/\n(\w+)\n```\n/g, '\n```$1\n');
+  return result;
+}
+
+type Segment =
+  | { type: 'text'; content: string }
+  | { type: 'element'; name: string; data: Record<string, unknown> };
+
+function parseSegments(text: string): Segment[] {
+  const segments: Segment[] = [];
+  let last = 0;
+  MARKER_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = MARKER_RE.exec(text)) !== null) {
+    const before = text.slice(last, match.index);
+    if (before) segments.push({ type: 'text', content: before });
+    try {
+      const data = JSON.parse('{' + match[2] + '}');
+      segments.push({ type: 'element', name: match[1], data });
+    } catch {
+      // Invalid JSON in marker — treat whole marker as plain text
+      segments.push({ type: 'text', content: match[0] });
+    }
+    last = match.index + match[0].length;
+  }
+  const trailing = text.slice(last);
+  if (trailing) segments.push({ type: 'text', content: trailing });
+  return segments;
+}
 
 interface MarkdownMessageProps {
   text: string;
   isAnimating?: boolean;
 }
 
-/**
- * Build synthetic UIMessage parts so useMarkdownElements can resolve element state.
- *
- * Since our backend returns full responses (not streamed via AI SDK),
- * we parse @name{...} markers and create "data-element" parts with state "ready".
- * The element ID must match the pattern useMarkdownElements expects: "el-{index}".
- */
-function buildSyntheticParts(text: string): UIMessage['parts'] {
-  const parts: UIMessage['parts'] = [{ type: 'text' as const, text }];
-  const markers = findMarkers(text);
+export default function MarkdownMessage({ text, isAnimating }: MarkdownMessageProps) {
+  const { darkMode } = useDarkMode();
 
-  for (let i = 0; i < markers.length; i++) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function renderElement(name: string, data: Record<string, unknown>): React.ReactNode {
     try {
-      const input = JSON.parse(markers[i].rawInput);
-      parts.push({
-        type: 'data-element',
-        id: `el-${i}`,
-        data: {
-          state: 'ready',
-          input,
-          data: input,
-        },
-      } as unknown as UIMessage['parts'][number]);
+      switch (name) {
+        case 'source_ref':    return renderSourceRef(data as any);
+        case 'price_card':    return renderPriceCard(data as any);
+        case 'position_card': return renderPositionCard(data as any, darkMode);
+        case 'risk_alert':    return renderRiskAlert(data as any);
+        default:              return null;
+      }
     } catch {
-      // Invalid JSON in marker — skip
+      return null;
     }
   }
 
-  return parts;
-}
+  const normalized = useMemo(() => normalizeMarkdown(text), [text]);
+  const segments = useMemo(() => parseSegments(normalized), [normalized]);
 
-export default function MarkdownMessage({ text, isAnimating }: MarkdownMessageProps) {
-  const parts = useMemo(() => buildSyntheticParts(text), [text]);
-
-  const { processedText, components, elementNames } = useMarkdownElements({
-    text,
-    parts,
-    elements: elementUIs,
-  });
-
-  const allowedTags = useMemo(
-    () =>
-      Object.fromEntries(
-        elementNames.map((name) => [name, ['dataElementId', 'dataElementState']]),
-      ),
-    [elementNames],
-  );
+  // Fast path: no custom elements → render all markdown at once
+  if (segments.length === 1 && segments[0].type === 'text') {
+    return <Streamdown isAnimating={isAnimating}>{normalized}</Streamdown>;
+  }
 
   return (
-    <Streamdown
-      isAnimating={isAnimating}
-      allowedTags={allowedTags}
-      components={components}
-    >
-      {processedText}
-    </Streamdown>
+    <div>
+      {segments.map((seg, i) => {
+        if (seg.type === 'text') {
+          return (
+            <Streamdown key={i} isAnimating={isAnimating && i === segments.length - 1}>
+              {seg.content}
+            </Streamdown>
+          );
+        }
+        const el = renderElement(seg.name, seg.data);
+        if (!el) return null;
+        return (
+          <span
+            key={i}
+            className={css`
+              display: block;
+              margin: 6px 0;
+            `}
+          >
+            {el}
+          </span>
+        );
+      })}
+    </div>
   );
 }

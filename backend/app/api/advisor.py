@@ -2,11 +2,13 @@
 
 import os
 import uuid
+import json
 import logging
 from typing import Optional
 from contextlib import AsyncExitStack
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.infrastructure.db import get_db
@@ -34,6 +36,7 @@ def _get_llm():
             model=model,
             api_key=azure_key,
             base_url=base_url,
+            default_headers={"api-key": azure_key},
             temperature=0.3,
             max_tokens=4096,
         )
@@ -269,7 +272,7 @@ def _build_agent(coll, portfolio: list[PositionInput], generators: list[Generato
     def web_search(query: str) -> str:
         """Search the web for real-time information about energy markets, oil prices, geopolitical events, weather, or any current topic. Use this when the document database doesn't have current information."""
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=5))
             if not results:
@@ -362,6 +365,8 @@ You use hybrid search: RAG via MongoDB Atlas Vector Search (VoyageAI voyage-fina
 
     llm = _get_llm()
 
+    from langgraph.prebuilt import create_react_agent
+
     agent = create_react_agent(
         llm,
         all_tools,
@@ -440,3 +445,96 @@ async def advisor_chat(req: AdvisorRequest, client=Depends(get_db)):
             sources=[],
             tool_calls=[],
         )
+
+
+# ── Streaming endpoint ────────────────────────────────────
+
+@router.post("/advisor/stream")
+async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
+    """SSE streaming advisor — emits tool_start/tool_end events then streams tokens in real-time."""
+    if not _llm_configured():
+        async def _no_llm():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'No LLM configured. Set ANTHROPIC_API_KEY or AZURE_FOUNDRY_* in deploy/.env.'})}\n\n"
+        return StreamingResponse(_no_llm(), media_type="text/event-stream")
+
+    session_id = req.session_id or str(uuid.uuid4())
+    db = client[DB_NAME]
+    coll = db[COLLECTION]
+
+    async def generate():
+        async with AsyncExitStack() as stack:
+            try:
+                checkpointer = _get_checkpointer(client)
+            except Exception as e:
+                logger.warning("Checkpointer unavailable: %s", e)
+                checkpointer = None
+
+            mcp_tools = await _enter_mcp_client(stack)
+            agent, _ = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
+
+            from langchain_core.messages import HumanMessage
+
+            config = {"configurable": {"thread_id": session_id}}
+            messages = [HumanMessage(content=req.message)]
+            tool_calls_used: list[str] = []
+            full_answer = ""
+
+            try:
+                async for event in agent.astream_events({"messages": messages}, config, version="v2"):
+                    etype = event["event"]
+
+                    if etype == "on_tool_start":
+                        name = event.get("name", "")
+                        if name and not name.startswith("__"):
+                            tool_calls_used.append(name)
+                            yield f"data: {json.dumps({'type': 'tool_start', 'name': name})}\n\n"
+
+                    elif etype == "on_tool_end":
+                        name = event.get("name", "")
+                        if name and not name.startswith("__"):
+                            yield f"data: {json.dumps({'type': 'tool_end', 'name': name})}\n\n"
+
+                    elif etype == "on_chat_model_stream":
+                        chunk = event["data"].get("chunk")
+                        if chunk:
+                            content = getattr(chunk, "content", "")
+                            if isinstance(content, str) and content:
+                                full_answer += content
+                                yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
+                            elif isinstance(content, list):
+                                for part in content:
+                                    if isinstance(part, dict) and part.get("type") == "text":
+                                        text = part.get("text", "")
+                                        if text:
+                                            full_answer += text
+                                            yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
+
+                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'tool_calls': tool_calls_used})}\n\n"
+
+                # Save interaction so RAGAS evals can pick up real user queries
+                if full_answer and req.message:
+                    try:
+                        from datetime import datetime, timezone
+                        db["advisor_interactions"].insert_one({
+                            "timestamp": datetime.now(timezone.utc),
+                            "question": req.message[:600],
+                            "answer": full_answer[:1500],
+                            "tool_calls": list(dict.fromkeys(tool_calls_used)),  # deduplicated
+                            "session_id": session_id,
+                        })
+                    except Exception as save_err:
+                        logger.warning("Failed to save advisor interaction: %s", save_err)
+
+            except Exception as e:
+                logger.exception("Streaming advisor error")
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

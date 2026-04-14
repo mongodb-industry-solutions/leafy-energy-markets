@@ -23,32 +23,40 @@ export const routes: Record<string, RouteWaypoint[]> = {
     { lat: 53.5, lng: 4.8 },
     { lat: 51.95, lng: 4.12, label: 'Rotterdam' },
   ],
-  // Nigerian crude via West Africa
+  // Nigerian crude via West Africa — stays offshore through Gulf of Guinea
   nigeria: [
     { lat: 4.77, lng: 7.01, label: 'Bonny Island' },
-    { lat: 6.0, lng: 3.0 },
-    { lat: 10.0, lng: -5.0 },
-    { lat: 20.0, lng: -10.0 },
-    { lat: 35.0, lng: -8.0 },
+    { lat: 3.5,  lng: 4.0  },   // Gulf of Guinea (ocean)
+    { lat: 3.0,  lng: -1.0 },   // Off Ghana — stays in water
+    { lat: 5.0,  lng: -8.0 },   // Off Liberia coast (ocean)
+    { lat: 10.0, lng: -17.0 },  // Atlantic off Guinea-Bissau
+    { lat: 20.0, lng: -20.0 },  // Atlantic off Mauritania
+    { lat: 35.0, lng: -10.0 },  // Atlantic off Morocco
     { lat: 43.0, lng: -9.5 },
     { lat: 48.5, lng: -5.5 },
     { lat: 51.0, lng: 1.5 },
     { lat: 51.95, lng: 4.12, label: 'Rotterdam' },
   ],
-  // Qatari LNG via Suez Canal
+  // Qatari LNG — exits Persian Gulf via Strait of Hormuz, then Suez Canal
   qatar: [
     { lat: 25.29, lng: 51.53, label: 'Ras Laffan' },
-    { lat: 23.0, lng: 48.0 },
-    { lat: 15.0, lng: 42.0 },
-    { lat: 12.5, lng: 43.5 },
-    { lat: 30.0, lng: 32.5 },
-    { lat: 31.5, lng: 32.3 },
-    { lat: 35.0, lng: 24.0 },
-    { lat: 36.5, lng: 15.0 },
-    { lat: 36.0, lng: -5.5 },
-    { lat: 43.0, lng: -9.5 },
-    { lat: 48.5, lng: -5.5 },
-    { lat: 51.0, lng: 1.5 },
+    { lat: 25.5,  lng: 55.5  },  // Across Persian Gulf towards Hormuz
+    { lat: 26.5,  lng: 56.8  },  // Strait of Hormuz
+    { lat: 22.0,  lng: 59.0  },  // Arabian Sea (Oman coast)
+    { lat: 16.0,  lng: 53.0  },  // Arabian Sea (deeper)
+    { lat: 13.0,  lng: 48.0  },  // Gulf of Aden entry
+    { lat: 12.5,  lng: 43.5  },  // Bab el-Mandeb strait
+    { lat: 22.0,  lng: 37.5  },  // Red Sea
+    { lat: 28.5,  lng: 34.0  },  // Gulf of Suez entry
+    { lat: 30.0,  lng: 32.5  },  // Suez Canal entry
+    { lat: 31.25, lng: 32.3  },  // Port Said / Suez Canal exit
+    { lat: 33.5,  lng: 27.5  },  // Eastern Mediterranean
+    { lat: 35.0,  lng: 24.0  },  // Crete area
+    { lat: 36.5,  lng: 15.0  },  // Central Mediterranean
+    { lat: 36.0,  lng: -5.5  },  // Strait of Gibraltar
+    { lat: 43.0,  lng: -9.5  },
+    { lat: 48.5,  lng: -5.5  },
+    { lat: 51.0,  lng: 1.5   },
     { lat: 51.95, lng: 4.12, label: 'Rotterdam' },
   ],
   // Baltic / Primorsk crude

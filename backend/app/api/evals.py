@@ -96,3 +96,20 @@ async def get_latest(client=Depends(get_db)):
     if hasattr(ts, "isoformat"):
         doc["timestamp"] = ts.isoformat()
     return doc
+
+
+@router.get("/evals/interactions")
+async def get_interactions(limit: int = 50, client=Depends(get_db)):
+    """Return recent advisor interactions for query term analysis / bubble chart."""
+    db = client[DB_NAME]
+    docs = list(
+        db["advisor_interactions"]
+        .find({}, {"question": 1, "tool_calls": 1, "timestamp": 1, "_id": 0})
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+    for d in docs:
+        ts = d.get("timestamp")
+        if hasattr(ts, "isoformat"):
+            d["timestamp"] = ts.isoformat()
+    return docs

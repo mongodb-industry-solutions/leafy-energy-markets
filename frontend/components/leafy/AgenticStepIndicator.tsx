@@ -3,7 +3,6 @@
 import { css, keyframes } from '@emotion/css';
 import Icon from '@leafygreen-ui/icon';
 import { palette } from '@leafygreen-ui/palette';
-import { Body } from '@leafygreen-ui/typography';
 import { useDarkMode } from '@/components/Providers';
 import type { AgenticStep } from '@/lib/types';
 
@@ -14,6 +13,11 @@ interface AgenticStepIndicatorProps {
 const spin = keyframes`
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+`;
+
+const slideIn = keyframes`
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
 `;
 
 export default function AgenticStepIndicator({ steps }: AgenticStepIndicatorProps) {
@@ -28,27 +32,24 @@ export default function AgenticStepIndicator({ steps }: AgenticStepIndicatorProp
         display: flex;
         flex-direction: column;
         gap: 0;
-        padding: 16px 0;
+        padding: 8px 0 0;
       `}
     >
-      <Body
-        className={css`
-          font-size: 13px !important;
-          font-weight: 600 !important;
-          color: ${darkMode ? palette.green.light1 : palette.green.dark1} !important;
-          margin-bottom: 12px !important;
-        `}
-      >
-        Agentic workflow in progress...
-      </Body>
       {steps.map((step, i) => {
+        const delay = `${i * 80}ms`;
         const isLast = i === steps.length - 1;
         const isCompleted = step.status === 'completed';
         const isRunning = step.status === 'running';
         const isPending = step.status === 'pending';
 
         return (
-          <div key={step.id} className={css`display: flex; gap: 12px; align-items: stretch;`}>
+          <div
+            key={step.id}
+            className={css`
+              display: flex; gap: 12px; align-items: stretch;
+              animation: ${slideIn} 0.2s ease ${delay} both;
+            `}
+          >
             {/* Vertical line + icon column */}
             <div className={css`display: flex; flex-direction: column; align-items: center; width: 20px;`}>
               {/* Step icon */}

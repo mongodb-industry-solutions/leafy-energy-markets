@@ -1,13 +1,13 @@
 # Leafy Energy Markets
 
-An energy trading intelligence platform built on MongoDB, demonstrating Event Sourcing, CQRS, dynamic tariff scenario analysis, real-time telemetry, compliance audit replay, and an AI assistant — all wrapped in MongoDB's LeafyGreen UI design system.
+An energy trading intelligence platform built on MongoDB, demonstrating Event Sourcing, CQRS, dynamic tariff scenario analysis, real-time telemetry, compliance audit replay, and an AI assistant powered by a LangChain ReAct agent — all wrapped in MongoDB's LeafyGreen UI design system.
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │              Next.js 14 Frontend (LeafyGreen UI)                         │
-│  /dashboard  /scenarios  /search  /leafy  /telemetry  /audit            │
+│  /dashboard  /leafy  /audit  /cqrs  /architecture  /telemetry  /evals   │
 └──────┬──────────────────────────────┬────────────────────┬───────────────┘
        │                              │                    │
  POST /api/*                    GET /api/*           SSE /api/telemetry
@@ -25,7 +25,7 @@ An energy trading intelligence platform built on MongoDB, demonstrating Event So
            │  (append-only)      Change Streams              insert_many()
            │                           │                    (time-series)
 ┌──────────▼───────────────────────────┼──────────────────────────▼────────┐
-│                          MongoDB                                         │
+│                          MongoDB Atlas                                    │
 │                                                                          │
 │  ┌──────────────────────┐  ┌─────────────────────┐  ┌─────────────────┐  │
 │  │ events (append-only) │  │ Read Model Colls    │  │ telemetry_events│  │
@@ -38,7 +38,12 @@ An energy trading intelligence platform built on MongoDB, demonstrating Event So
 │  │ Unique: {streamId,   │  │ Streams from events │  │ From 8 energy   │  │
 │  │          version}    │  │                     │  │ originators     │  │
 │  └──────────┬───────────┘  └─────────────────────┘  └─────────────────┘  │
-└─────────────┼────────────────────────────────────────────────────────────┘
+│             │                                                             │
+│  ┌──────────▼────────────────────────────────────────────────────────┐   │
+│  │ market_documents — VoyageAI embeddings (voyage-finance-2, 1024d)  │   │
+│  │ Hybrid vector + BM25 text search via Atlas Search                 │   │
+│  └───────────────────────────────────────────────────────────────────┘   │
+└─────────────┬────────────────────────────────────────────────────────────┘
               │
               │  fold() replay
               │
@@ -46,13 +51,13 @@ An energy trading intelligence platform built on MongoDB, demonstrating Event So
 │              Audit & Compliance Layer                                     │
 │                                                                          │
 │  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────────────┐  │
-│  │  Event Replay    │ │  Regulatory      │ │  Dispute Resolution      │  │
+│  │  Event Replay    │ │  Regulatory      │ │  LLM Compliance Audit    │  │
 │  │  Engine          │ │  Reporting       │ │                          │  │
-│  │                  │ │                  │ │  Side-by-side replay     │  │
-│  │  fold() rebuilds │ │  REMIT / ACER    │ │  with alternative       │  │
-│  │  state at any    │ │  ENTSO-E / CACM  │ │  parameters              │  │
-│  │  point in time   │ │  transparency    │ │                          │  │
-│  │                  │ │  obligations     │ │  Time-travel debugging   │  │
+│  │                  │ │                  │ │  LangChain ReAct agent   │  │
+│  │  fold() rebuilds │ │  REMIT / ACER    │ │  analyzes event streams  │  │
+│  │  state at any    │ │  EU 2017/2195    │ │  against EU regulations  │  │
+│  │  point in time   │ │  transparency    │ │  with citations          │  │
+│  │                  │ │  obligations     │ │                          │  │
 │  └──────────────────┘ └──────────────────┘ └──────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -60,16 +65,17 @@ An energy trading intelligence platform built on MongoDB, demonstrating Event So
 ## Features
 
 - **Portfolio Dashboard** — Real-time P&L, positions table, 24-hour MWh exposure chart
-- **Scenario Builder** — Create tariff scenarios via real API, one-click demo comparing flat vs dynamic tariffs with P&L charts
-- **Market Intelligence** — Search research reports, ESG assessments, and asset data with type filtering
-- **Leafy Chat** — AI assistant with suggested prompts, source citations, and pre-scripted demo flow
-- **Telemetry** — Real-time MongoDB write performance dashboard with configurable load generator, live event feed from 8 energy originators across Europe, throughput/latency charts
-- **Event Inspector** — Interactive Event Sourcing showcase with fold() replay, time-travel debugging, and 4 pre-built EU compliance scenarios
+- **EnerLeafy AI** — LangChain ReAct advisor with 5 tools: portfolio analysis, hybrid search, market intelligence, generator status, and web search. Powered by Claude (`claude-opus-4-6`) via Azure AI Foundry or Anthropic direct
+- **Auditing** — Interactive Event Sourcing showcase with `fold()` replay, time-travel debugging, and 2 pre-built EU compliance scenarios with LLM-powered compliance analysis
+- **CQRS** — Visual explainer of the Command/Query Responsibility Segregation pattern used throughout the platform
+- **Architecture** — Interactive system diagram visualization
+- **VPP (3D)** — Real-time telemetry dashboard with configurable load generator, live event feed from 8 energy originators, throughput/latency charts, and a Three.js globe visualization
+- **Evals** — RAGAS evaluation dashboard for assessing RAG pipeline quality (faithfulness, answer relevancy, context precision, context recall)
 - **Dark Mode** — Full dark/light theme toggle across all views
 
 ## Compliance Scenarios
 
-The platform's Event Sourcing architecture is purpose-built for European energy market compliance, where replaying event history is a regulatory requirement. Each scenario demonstrates how `fold()` replay resolves a real-world dispute or investigation. These scenarios are fully interactive in the **Event Inspector** (`/audit`) — select any scenario, scrub through versions, and watch the aggregate state reconstruct step-by-step.
+The platform's Event Sourcing architecture is purpose-built for European energy market compliance, where replaying event history is a regulatory requirement. Each scenario demonstrates how `fold()` replay resolves a real-world dispute or investigation. These scenarios are fully interactive in the **Auditing** tab (`/audit`) — select a scenario, scrub through versions, and watch the aggregate state reconstruct step-by-step.
 
 ### 1. Imbalance Settlement Audit
 
@@ -99,37 +105,26 @@ REMIT requires that all energy market participants preserve complete records of 
 
 [Full scenario details →](docs/scenarios/02-remit-trade-surveillance.md)
 
-### 3. Flexibility Market Clearing
+## AI Advisor (EnerLeafy AI)
 
-**Regulation**: Electricity Directive 2019/944
+The `/leafy` tab runs a LangChain ReAct agent backed by Claude (`claude-opus-4-6`). The agent has access to five tools:
 
-The EU Electricity Directive establishes aggregators' right to participate in flexibility markets, where DSOs procure load reduction to resolve grid congestion. The core challenge is **delivery verification**: comparing actual consumption against a counterfactual baseline.
+| Tool | Description |
+|------|-------------|
+| `analyze_portfolio` | Fetches live portfolio positions and P&L from MongoDB |
+| `search_policies` | Hybrid vector + BM25 search over regulatory policy documents |
+| `search_market_intel` | Hybrid search over market intelligence and ESG reports |
+| `get_generator_status` | Checks the telemetry load generator's current state |
+| `web_search` | Real-time web search for current market data |
 
-**The dispute**: An aggregator ("FlexCo") contracted 5 MW load reduction. The DSO's Method A (10-day average baseline) measures only **3.2 MW** → under-delivery penalty. FlexCo's Method B (regression-adjusted baseline) shows **4.8 MW** → within tolerance.
-
-**How fold() resolves it**: Both verification events coexist in the same stream. The measured consumption (5.2 MW) is identical in both — the disagreement is entirely in the baseline methodology. By replaying the same meter readings through both baselines, the platform provides an auditable side-by-side comparison for regulatory arbitration.
-
-**Key events**: `FlexibilityBidSubmitted`, `FlexibilityActivated`, `MeterReadingRecorded`, `FlexibilityDeliveryVerified`
-
-[Full scenario details →](docs/scenarios/03-flexibility-market-clearing.md)
-
-### 4. Cross-Border Capacity Allocation
-
-**Regulation**: CACM (EU) 2015/1222
-
-Cross-border electricity capacity is allocated through the Euphemia algorithm in the Single Day-Ahead Coupling (SDAC). When transmission is constrained, the algorithm calculates optimal flows, clearing prices, and congestion revenue distribution. Market participants who are curtailed have the right to audit the entire process.
-
-**The dispute**: A French industrial consumer requested 500 MW cross-border (DE→FR) but was curtailed to **350 MW** due to a binding constraint on the Vigy-Uchtelfangen line. The consumer challenges the curtailment.
-
-**How fold() resolves it**: The 8-event stream contains both TSOs' flow-based parameter submissions, the Euphemia clearing results, congestion revenue distribution, and the curtailment notification. By replaying with modified parameters (e.g., "What if Amprion had submitted RAM=2,200 MW instead of 1,850?"), the platform enables transparent what-if analysis for infrastructure investment discussions.
-
-**Key events**: `CrossBorderFlowRecorded`, `CapacityAllocationRequested`, `PriceTickRecorded`, `CongestionRevenueDistributed`, `TradeExecuted`
-
-[Full scenario details →](docs/scenarios/04-cross-border-capacity-allocation.md)
+**LLM auto-detection** (`advisor.py::_get_llm()`):
+1. Uses Azure AI Foundry if `AZURE_FOUNDRY_API_KEY` + `AZURE_FOUNDRY_ENDPOINT` are set
+2. Falls back to Anthropic direct if `ANTHROPIC_API_KEY` is set
+3. Expect ~15–30s response times for complex queries
 
 ## Telemetry
 
-The Telemetry page (`/telemetry`) demonstrates MongoDB's write performance by simulating energy market event ingestion at configurable throughput. Events flow from 8 realistic European energy originators:
+The VPP (3D) tab (`/telemetry`) demonstrates MongoDB's write performance by simulating energy market event ingestion at configurable throughput. Events flow from 8 realistic European energy originators:
 
 | Originator | Region | Event Types |
 |---|---|---|
@@ -144,22 +139,25 @@ The Telemetry page (`/telemetry`) demonstrates MongoDB's write performance by si
 
 **Controls**: Mode toggle (Simulation/Backend), Live Feed toggle, concurrent writers (1–200), events/sec (10–400,000 logarithmic), batch size (1–5,000), event type toggles.
 
-**Visualizations**: Throughput chart (events/sec over time), latency chart (p50/p95/p99), live event feed showing individual events from each originator.
+**Visualizations**: Throughput chart (events/sec over time), latency chart (p50/p95/p99), live event feed, Three.js 3D globe showing originator locations.
 
 When the backend + MongoDB are running, events are written to a `telemetry_events` time-series collection. When the backend is unavailable, the frontend falls back to simulated metrics with realistic jitter.
 
 ## Tech Stack
 
-| Layer    | Technology                                                 |
-| -------- | ---------------------------------------------------------- |
-| Frontend | Next.js 14, React 18, LeafyGreen UI, Emotion CSS, Recharts |
-| Backend  | Python, FastAPI, Pydantic                                  |
-| Database | MongoDB (Event Store, Time-Series, Change Streams, Projections) |
-| Patterns | Domain-Driven Design, Event Sourcing, CQRS                 |
+| Layer    | Technology                                                            |
+| -------- | --------------------------------------------------------------------- |
+| Frontend | Next.js 14, React 18, LeafyGreen UI, Emotion CSS, Recharts, Three.js (R3F v8) |
+| Backend  | Python 3.12, FastAPI, Pydantic, LangChain ReAct                       |
+| LLM      | Claude `claude-opus-4-6` via Azure AI Foundry (primary) or Anthropic direct (fallback) |
+| Embeddings | VoyageAI `voyage-finance-2` (1024d) with deterministic hash fallback |
+| Evals    | RAGAS (faithfulness, answer relevancy, context precision/recall)      |
+| Database | MongoDB Atlas — Event Store, Time-Series, Change Streams, Vector Search |
+| Patterns | Domain-Driven Design, Event Sourcing, CQRS                            |
 
 ## Data Models & Collections
 
-MongoDB stores data across three primary collections, each using a different collection type suited to its access pattern.
+MongoDB stores data across four primary collections.
 
 ### Collections Overview
 
@@ -168,6 +166,7 @@ MongoDB stores data across three primary collections, each using a different col
 | `events` | Standard | Append-only event store for CQRS/ES |
 | `telemetry_events` | Time-Series | High-throughput telemetry ingestion |
 | `tariff_scenarios` | Standard | Read model projection for scenarios |
+| `market_documents` | Standard | Research docs with VoyageAI embeddings for hybrid search |
 
 ### `events` Collection (Event Store)
 
@@ -243,19 +242,32 @@ Materialized read model built from event projections via Change Streams. Stores 
 }
 ```
 
-**Access pattern**: Created by command handlers, queried by the scenario list and detail views. Status updated via Change Stream projections as events flow through the event store.
+### `market_documents` Collection (Vector Search)
+
+Research documents, ESG reports, and market intelligence with VoyageAI embeddings for hybrid search.
+
+```json
+{
+  "_id": "ObjectId",
+  "title": "string",
+  "content": "string — full document text",
+  "doc_type": "string — research | esg | asset",
+  "embedding": "[float × 1024] — voyage-finance-2 vector",
+  "metadata": { "source": "...", "date": "ISODate" }
+}
+```
+
+**Access pattern**: Hybrid Atlas Search (vector similarity + BM25 text) with reciprocal rank fusion.
 
 ## Prerequisites
 
 - **Node.js** 18+
-- **Python** 3.10+
-- **MongoDB** instance (local or Atlas)
+- **Python** 3.12
+- **MongoDB Atlas** instance (local or Atlas)
 
 ## Quick Start
 
 ### Option 1: One-Command Demo (Recommended)
-
-The easiest way to run the demo locally:
 
 ```bash
 ./start-demo.sh
@@ -268,8 +280,14 @@ This will:
 - Show you the URLs to access the demo
 
 **Alternative scripts:**
-- `./start-backend.sh` - Start backend only (port 8000)
-- `./start-frontend.sh` - Start frontend only (port 3000)
+- `./start-backend.sh` — Start backend only (port 8000)
+- `./start-frontend.sh` — Start frontend only (port 3000)
+
+**Logs:**
+```bash
+tail -f /tmp/leafy-backend.log
+tail -f /tmp/leafy-frontend.log
+```
 
 ### Option 2: Manual Setup
 
@@ -277,18 +295,24 @@ This will:
 
 ```bash
 git clone <repo-url> && cd leafy-energy-markets
-cp deploy/env.example .env
+cp deploy/env.example deploy/.env
 ```
 
-Edit `.env` and set your `MONGO_URI` (the other keys are optional for the demo).
+Edit `deploy/.env` with your credentials:
+
+```bash
+MONGO_URI=mongodb+srv://...
+ANTHROPIC_API_KEY=sk-ant-...          # OR use Azure Foundry below
+AZURE_FOUNDRY_API_KEY=...             # Primary LLM provider (optional)
+AZURE_FOUNDRY_ENDPOINT=https://...    # Azure AI Foundry endpoint (optional)
+VOYAGE_API_KEY=...                    # Optional — falls back to hash embeddings
+```
 
 #### 2. Start the backend
 
 ```bash
-# Create virtual environment with Python 3.12
 python3.12 -m venv venv
 source venv/bin/activate
-
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
@@ -315,40 +339,33 @@ Frontend at `http://localhost:3000`, backend at `http://localhost:8000`.
 
 ## Running the Demo
 
-The frontend works fully with mock data even if the backend is not running. When the backend is available, the Scenario Builder makes real API calls and Telemetry writes to MongoDB.
+The frontend works with mock data even when the backend is not running. When the backend is available, the AI advisor, telemetry generator, and compliance analysis use real API calls and MongoDB.
 
 ### Demo walkthrough
 
-1. **Dashboard** — Opens by default. Browse the portfolio summary cards, scroll through the 14 mock positions, and see the 24-hour exposure bar chart.
+1. **Dashboard** — Opens by default. Browse portfolio summary cards, positions table, and 24-hour exposure chart.
 
-2. **Scenarios** — Click "Scenarios" in the sidebar.
-   - Click **"Run Demo Scenario"** in the top-right. This will:
-     - Create a baseline (flat tariff) scenario via the API (or fall back to mock)
-     - Create a dynamic (ToU + load shifting) scenario
-     - Display a side-by-side P&L comparison with line charts and savings breakdown
-   - Alternatively, fill out the form manually and click **"Create Scenario"** to call the real API.
-   - Click any scenario row to view its detail page with metadata, hourly P&L breakdown, and comparison charts.
+2. **EnerLeafy AI** — Click "EnerLeafy AI" in the sidebar. Pick a suggested prompt or ask your own question. The LangChain ReAct agent uses its tool suite to analyze your portfolio, search policies, and retrieve market intelligence. Expect ~15–30s for complex queries.
 
-3. **Ask Leafy Why** — From a scenario detail page, click the **"Ask Leafy Why"** button in the info banner at the bottom. This navigates to Leafy with a pre-seeded conversation explaining why the dynamic tariff saves ~12%.
+3. **Auditing** — Click "Auditing" in the sidebar.
+   - Select one of the 2 compliance scenarios (Imbalance Settlement, REMIT Surveillance).
+   - The event timeline loads on the left, aggregate state (result of `fold()`) on the right.
+   - Use the **replay slider** to scrub through versions — watch the state reconstruct at each step.
+   - Click **"Analyze with AI"** to trigger LLM compliance analysis against the applicable EU regulation.
 
-4. **Market Intelligence** — Click "Market Intelligence" in the sidebar. Type a query (e.g., "carbon", "wind", "gas") or filter by document type (Research / ESG / Asset).
+4. **CQRS** — Visual explainer of how Commands and Queries are separated in this architecture.
 
-5. **Leafy** — Click "Leafy" in the sidebar. Pick any of the four suggested prompt cards or type your own question. The assistant responds with formatted markdown, tables, and source citations.
+5. **Architecture** — Interactive system diagram showing all components and data flows.
 
-6. **Telemetry** — Click "Telemetry" in the sidebar.
-   - Adjust the sliders: writers, events/sec, batch size.
+6. **VPP (3D)** — Click "VPP" in the sidebar.
+   - Adjust sliders: concurrent writers, events/sec, batch size.
    - Toggle event types (Price Ticks, Meter Readings, Trades).
    - Click **"Start Generator"** → metric cards update, charts populate, live event feed scrolls with events from 8 European energy originators.
    - Click **"Stop Generator"** → stream stops, charts freeze.
 
-7. **Event Inspector** — Click "Event Inspector" in the sidebar.
-   - Select one of the 4 compliance scenarios (Imbalance Settlement, REMIT Surveillance, Flexibility Market, Cross-Border Capacity).
-   - The event timeline loads on the left, aggregate state (result of `fold()`) on the right.
-   - Use the **replay slider** to scrub through versions — watch the state reconstruct at each step.
-   - Click **"Step-by-Step Replay"** for an animated walkthrough.
-   - Click any event in the timeline to jump to that version and see its payload + resulting state.
+7. **Evals** — Click "Evals" in the sidebar. Click **"Run Evaluation"** to trigger a RAGAS evaluation run against the RAG pipeline. Results display faithfulness, answer relevancy, context precision, and context recall scores.
 
-8. **Dark Mode** — Toggle the switch at the bottom of the sidebar to switch between dark and light themes.
+8. **Dark Mode** — Toggle at the bottom of the sidebar.
 
 ## Project Structure
 
@@ -358,21 +375,24 @@ frontend/
 │   ├── layout.tsx              # Root layout with Providers + AppShell
 │   ├── page.tsx                # Redirects to /dashboard
 │   ├── dashboard/page.tsx      # Portfolio dashboard
+│   ├── leafy/page.tsx          # EnerLeafy AI advisor chat
+│   ├── audit/page.tsx          # Auditing / Event Inspector / compliance replay
+│   ├── cqrs/page.tsx           # CQRS pattern explainer
+│   ├── architecture/page.tsx   # System architecture diagram
+│   ├── telemetry/page.tsx      # Real-time telemetry + Three.js VPP globe
+│   ├── evals/page.tsx          # RAGAS evaluation dashboard
 │   ├── scenarios/
 │   │   ├── page.tsx            # Scenario builder + list
 │   │   └── [scenarioId]/page.tsx  # Scenario detail
-│   ├── search/page.tsx         # Market intelligence search
-│   ├── leafy/page.tsx          # AI assistant chat
-│   ├── telemetry/page.tsx      # Real-time telemetry dashboard
-│   └── audit/page.tsx          # Event Inspector / compliance replay
+│   └── search/page.tsx         # Market intelligence search
 ├── components/
 │   ├── AppShell.tsx            # SideNav + content layout
 │   ├── Providers.tsx           # LeafyGreen + dark mode context
 │   ├── EmotionRegistry.tsx     # SSR style injection for Emotion
 │   ├── shared/                 # PageHeader, MetricCard, LoadingState, ErrorBanner
 │   ├── dashboard/              # PortfolioSummaryCards, PositionsTable, ExposureChart
-│   ├── scenarios/              # ScenarioForm, ScenarioList, ScenarioComparison, PnLBreakdown, ScenarioDetailView
-│   ├── search/                 # SearchBar, SearchFilters, SearchResults, SearchEmptyState
+│   ├── scenarios/              # ScenarioForm, ScenarioList, ScenarioComparison, PnLBreakdown
+│   ├── search/                 # SearchBar, SearchFilters, SearchResults
 │   ├── leafy/                  # ChatContainer, ChatMessage, ChatInput, SuggestedPrompts, SourceCitation
 │   ├── telemetry/              # ControlPanel, TelemetryMetricCards, ThroughputChart, LatencyChart, EventFeed
 │   └── audit/                  # EventTimeline, AggregateStateView, ReplayControls, EventCard
@@ -380,22 +400,27 @@ frontend/
     ├── types.ts                # Shared TypeScript interfaces
     ├── api.ts                  # Typed fetch client for backend endpoints
     ├── mock-data.ts            # Realistic mock data for all views
-    ├── demo-flow.ts            # One-click demo orchestration
+    ├── generator-context.tsx   # Telemetry generator state + controls
     └── compliance-scenarios.ts # Pre-built EU compliance scenario event streams
 
 backend/
 ├── app/
 │   ├── main.py                 # FastAPI entrypoint + CORS
 │   ├── api/
+│   │   ├── advisor.py          # LangChain ReAct advisor + _get_llm() auto-detect
+│   │   ├── audit.py            # LLM compliance analysis endpoint
 │   │   ├── commands.py         # POST endpoints (create scenario, seed demo)
 │   │   ├── queries.py          # GET endpoints (scenario, event streams, replay)
-│   │   └── telemetry.py        # Telemetry load generator + SSE streaming
+│   │   ├── search.py           # Hybrid vector + text search
+│   │   ├── telemetry.py        # Telemetry load generator + SSE streaming
+│   │   └── evals.py            # RAGAS evaluation runner
 │   ├── domain/
 │   │   ├── commands.py         # Command models
 │   │   ├── events.py           # Domain events
 │   │   └── aggregates.py       # Aggregate roots + fold()
 │   ├── infrastructure/
-│   │   └── event_store.py      # MongoDB event store + replay APIs
+│   │   ├── event_store.py      # MongoDB event store + replay APIs
+│   │   └── embeddings.py       # VoyageAI client with hash fallback
 │   └── projections/
 │       └── tariff_scenarios.py # Change stream projections
 └── requirements.txt
@@ -406,18 +431,35 @@ backend/
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/portfolios/{id}/tariff-scenarios` | Create a tariff scenario |
-| GET | `/api/tariff-scenarios/{id}` | Get a scenario by ID |
 | POST | `/api/demo/seed-scenario` | Seed demo imbalance settlement events |
+| GET | `/api/tariff-scenarios/{id}` | Get a scenario by ID |
 | GET | `/api/events/streams` | List all event streams |
 | GET | `/api/events/stream/{id}` | Get events for a stream |
 | GET | `/api/events/stream/{id}/replay` | Step-by-step fold() replay |
+| POST | `/api/advisor` | LangChain ReAct advisor (SSE) |
+| POST | `/api/audit/analyze` | LLM compliance audit analysis |
+| POST | `/api/search` | Hybrid vector + BM25 text search |
 | POST | `/api/telemetry/start` | Start telemetry load generator |
 | POST | `/api/telemetry/stop` | Stop telemetry load generator |
-| GET | `/api/telemetry/stream` | SSE stream of telemetry metrics |
-| GET | `/api/telemetry/status` | Check generator running state |
-| GET | `/api/dashboard/stream` | SSE stream of live portfolio data |
+| GET | `/api/telemetry/stream` | SSE stream of real-time metrics |
+| POST | `/api/telemetry/events` | Ingest batch of telemetry events |
+| GET | `/api/telemetry/status` | Get generator status and metrics |
+| GET | `/api/dashboard/stream` | SSE stream of portfolio snapshots |
 | GET | `/api/dashboard/snapshot` | One-shot portfolio snapshot |
-| GET | `/api/scenarios/stream` | SSE stream of live scenario pricing |
+| GET | `/api/scenarios/stream` | SSE stream of scenario P&L projections |
+| POST | `/api/evals/run` | Trigger a RAGAS evaluation run |
+| GET | `/api/evals/status` | Get current evaluation status |
+| GET | `/api/evals/results` | Fetch recent evaluation runs |
+| GET | `/api/evals/results/latest` | Fetch latest run with per-question breakdown |
+
+## Common Pitfalls
+
+- **409 on telemetry start**: stale generator running — `POST /api/telemetry/stop` first, or restart backend
+- **LLM timeout**: Azure Foundry responses can take 15–30s; `next.config.js` sets 180s proxy timeout — do not lower
+- **npm install fails**: always run inside `frontend/` — `legacy-peer-deps=true` in `.npmrc` is required for React 18 + Three.js R3F coexistence; do not remove it
+- **Embeddings return wrong dimensions**: `VOYAGE_API_KEY` missing → hash fallback active (expected; 1024-dim shape preserved)
+- **Backend won't start**: check `deploy/.env` exists with `MONGO_URI` set; venv must be Python 3.12
+- **Azure Foundry 404**: the endpoint in `deploy/.env` must not end with `/anthropic` — the SDK appends this automatically
 
 ## Testing
 
@@ -427,13 +469,7 @@ cd backend && pytest
 
 # Frontend production build check
 cd frontend && npm run build
+
+# Lint
+cd frontend && npm run lint
 ```
-
-## Limitations
-
-- Search and Leafy use mock data — in production these would be backed by MongoDB Atlas Vector Search and an LLM
-- Portfolio positions and exposure data are static mocks
-- The demo flow creates real scenarios via the API but enriches them with mock P&L data
-- Telemetry falls back to simulated metrics when the backend is unavailable
-- Event Inspector uses pre-built compliance scenarios; when the backend is running, the seed endpoint creates real event streams in MongoDB
-- No authentication or user management

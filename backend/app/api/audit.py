@@ -6,6 +6,7 @@ import logging
 from contextlib import AsyncExitStack
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.infrastructure.db import get_db
@@ -138,7 +139,7 @@ def _build_audit_agent(coll, events: list[EventInput], regulation: str, mcp_tool
     def web_search(query: str) -> str:
         """Search the web for real-time regulatory information, case law, ACER decisions, or current EU energy regulation updates."""
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=5))
             if not results:
@@ -267,3 +268,85 @@ Please reconstruct the state at version {req.current_version}, review the full e
             sources=[],
             tool_calls=[],
         )
+
+
+# ── Streaming audit endpoint ──────────────────────────────
+
+@router.post("/audit/analyze/stream")
+async def analyze_audit_stream(req: AuditRequest, client=Depends(get_db)):
+    """SSE streaming compliance audit — emits tool events then streams tokens."""
+    if not _llm_configured():
+        async def _no_llm():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'No LLM configured.'})}\n\n"
+        return StreamingResponse(_no_llm(), media_type="text/event-stream")
+
+    db = client[DB_NAME]
+    coll = db[COLLECTION]
+    thread_id = f"audit-{req.scenario_id}-v{req.current_version}"
+
+    async def generate():
+        async with AsyncExitStack() as stack:
+            try:
+                checkpointer = _get_checkpointer(client)
+            except Exception:
+                checkpointer = None
+
+            mcp_tools = await _enter_mcp_client(stack)
+            agent, _ = _build_audit_agent(coll, req.events, req.regulation, mcp_tools, checkpointer=checkpointer)
+
+            from langchain_core.messages import HumanMessage
+
+            prompt = f"""Analyze this compliance scenario:
+
+**Scenario:** {req.scenario_title}
+**Regulation:** {req.regulation}
+**Description:** {req.description}
+
+The event stream has {len(req.events)} events. The user is currently viewing event version {req.current_version}.
+
+Please reconstruct the state at version {req.current_version}, review the full event timeline, and search for any relevant regulatory policies. Then provide a comprehensive compliance analysis."""
+
+            config = {"configurable": {"thread_id": thread_id}}
+            tool_calls_used: list[str] = []
+
+            try:
+                async for event in agent.astream_events(
+                    {"messages": [HumanMessage(content=prompt)]}, config, version="v2"
+                ):
+                    etype = event["event"]
+
+                    if etype == "on_tool_start":
+                        name = event.get("name", "")
+                        if name and not name.startswith("__"):
+                            tool_calls_used.append(name)
+                            yield f"data: {json.dumps({'type': 'tool_start', 'name': name})}\n\n"
+
+                    elif etype == "on_tool_end":
+                        name = event.get("name", "")
+                        if name and not name.startswith("__"):
+                            yield f"data: {json.dumps({'type': 'tool_end', 'name': name})}\n\n"
+
+                    elif etype == "on_chat_model_stream":
+                        chunk = event["data"].get("chunk")
+                        if chunk:
+                            content = getattr(chunk, "content", "")
+                            if isinstance(content, str) and content:
+                                yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
+                            elif isinstance(content, list):
+                                for part in content:
+                                    if isinstance(part, dict) and part.get("type") == "text":
+                                        text = part.get("text", "")
+                                        if text:
+                                            yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
+
+                yield f"data: {json.dumps({'type': 'done', 'tool_calls': tool_calls_used})}\n\n"
+
+            except Exception as e:
+                logger.exception("Streaming audit error")
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )

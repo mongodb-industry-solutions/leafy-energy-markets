@@ -123,9 +123,41 @@ async def run_ragas_evaluation(db, run_tag: str = "default") -> dict:
     llm = _get_llm()
     coll = db["documents"]
 
+    # ── Pull recent advisor interactions from MongoDB ─────────────────────────
+    advisor_cases = []
+    try:
+        recent = list(
+            db["advisor_interactions"]
+            .find({}, {"question": 1, "answer": 1, "tool_calls": 1, "_id": 0})
+            .sort("timestamp", -1)
+            .limit(6)
+        )
+        for i, doc in enumerate(recent):
+            q = doc.get("question", "").strip()
+            if q and len(q) > 10:
+                advisor_cases.append({
+                    "id": f"user-{i+1:02d}",
+                    "question": q,
+                    "category": "User Query",
+                    "search_type": None,
+                    "advisor_answer": doc.get("answer", ""),
+                    "advisor_tool_calls": doc.get("tool_calls", []),
+                })
+    except Exception as exc:
+        logger.warning("Could not fetch advisor interactions: %s", exc)
+
+    # Merge: put advisor interactions first, then hardcoded fallbacks to fill up to 6 total
+    combined_cases = advisor_cases[:6]
+    if len(combined_cases) < 6:
+        needed = 6 - len(combined_cases)
+        combined_cases += [
+            {**tc, "advisor_answer": "", "advisor_tool_calls": []}
+            for tc in TEST_CASES[:needed]
+        ]
+
     # ── Step 1: retrieve contexts + generate RAG answers ─────────────────────
     samples_data = []
-    for case in TEST_CASES:
+    for case in combined_cases:
         question = case["question"]
         type_filter = case.get("search_type")
 
@@ -165,6 +197,7 @@ async def run_ragas_evaluation(db, run_tag: str = "default") -> dict:
                 "category": case["category"],
                 "answer": answer,
                 "contexts": contexts,
+                "advisor_tool_calls": case.get("advisor_tool_calls", []),
             }
         )
 
@@ -189,11 +222,11 @@ async def run_ragas_evaluation(db, run_tag: str = "default") -> dict:
             valid_ids = [s["id"] for s in samples_data if s["contexts"]]
 
             dataset = EvaluationDataset(samples=ragas_samples)
+            metric = Faithfulness(llm=evaluator_llm)
             result_df = await asyncio.to_thread(
                 lambda: evaluate(
                     dataset=dataset,
-                    metrics=[Faithfulness()],
-                    llm=evaluator_llm,
+                    metrics=[metric],
                     show_progress=False,
                 ).to_pandas()
             )
@@ -233,6 +266,8 @@ async def run_ragas_evaluation(db, run_tag: str = "default") -> dict:
                 "category": s["category"],
                 "answer_preview": s["answer"][:300],
                 "context_count": len(s["contexts"]),
+                "tool_calls": s.get("advisor_tool_calls", []),
+                "source": "user" if s["id"].startswith("user-") else "test",
                 "scores": {
                     "faithfulness": faithfulness,
                     "answer_relevancy": answer_rel,

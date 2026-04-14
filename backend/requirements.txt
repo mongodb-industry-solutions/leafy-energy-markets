@@ -9,7 +9,7 @@ langchain
 langchain-anthropic
 langchain-core
 langgraph
-duckduckgo-search
+ddgs
 langchain-mcp-adapters
 langgraph-checkpoint-mongodb
 ragas>=0.2

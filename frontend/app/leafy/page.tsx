@@ -63,6 +63,7 @@ function LeafyContent() {
   const [mapExpanded, setMapExpanded] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const [reasoningText, setReasoningText] = useState('');
 
   // Initialise client-side only to avoid SSR/client hydration mismatch
   const [sessionId, setSessionId] = useState('');
@@ -109,6 +110,7 @@ function LeafyContent() {
     const toolStartTimes: Record<string, number> = {};
     setActiveAgenticSteps([]);
     setStepsVisible(true);
+    setReasoningText('');
 
     try {
       for await (const event of streamAdvisor(
@@ -140,6 +142,9 @@ function LeafyContent() {
             steps[realIdx].durationMs = Date.now() - (toolStartTimes[event.name] ?? Date.now());
             setActiveAgenticSteps([...steps]);
           }
+
+        } else if (event.type === 'reasoning') {
+          setReasoningText(prev => prev + event.text);
 
         } else if (event.type === 'token') {
           tokenBuffer += event.text;
@@ -348,16 +353,16 @@ function LeafyContent() {
                   padding-bottom: 4px;
                 `}
               >
-                {/* 1. Initial dot before any tool fires */}
-                {isTyping && (!activeAgenticSteps || activeAgenticSteps.length === 0) && (
+                {/* 1. Initial dot only if panel is not yet open (before activeAgenticSteps is set) */}
+                {isTyping && activeAgenticSteps === null && (
                   <div className={css`display: flex; align-items: center; gap: 8px; color: ${textColor}; font-size: 12px; font-style: italic; padding: 4px 0;`}>
                     <span className={css`width: 6px; height: 6px; border-radius: 50%; background: ${palette.green.base}; animation: ${blink} 1s ease-in-out infinite;`} />
                     EnerLeafy is thinking...
                   </div>
                 )}
 
-                {/* 2. Reasoning panel — appears as soon as first tool call fires, BEFORE the response text */}
-                {activeAgenticSteps !== null && activeAgenticSteps.length > 0 && (
+                {/* 2. Reasoning panel — appears immediately when message is sent, BEFORE the response text */}
+                {activeAgenticSteps !== null && (
                   <div
                     className={css`
                       border: 1px solid ${darkMode ? palette.gray.dark2 : palette.gray.light2};
@@ -380,15 +385,21 @@ function LeafyContent() {
                       <Icon glyph={stepsVisible ? 'ChevronDown' : 'ChevronRight'} size={12} />
                       Agent Reasoning
                       <span className={css`font-weight: 400; color: ${darkMode ? palette.gray.light1 : palette.gray.dark1};`}>
-                        — {activeAgenticSteps.filter(s => s.status === 'completed').length}/{activeAgenticSteps.length} tools
-                        {activeAgenticSteps.some(s => s.status === 'running') && (
-                          <span className={css`margin-left: 6px; color: ${palette.green.base};`}>in progress…</span>
+                        {activeAgenticSteps.length === 0 ? (
+                          <span className={css`margin-left: 6px; color: ${palette.green.base};`}>planning…</span>
+                        ) : (
+                          <>
+                            {' '}— {activeAgenticSteps.filter(s => s.status === 'completed').length}/{activeAgenticSteps.length} tools
+                            {activeAgenticSteps.some(s => s.status === 'running') && (
+                              <span className={css`margin-left: 6px; color: ${palette.green.base};`}>in progress…</span>
+                            )}
+                          </>
                         )}
                       </span>
                     </button>
                     {stepsVisible && (
                       <div className={css`padding: 4px 12px 12px; animation: ${fadeIn} 0.15s ease;`}>
-                        <AgenticStepIndicator steps={activeAgenticSteps} />
+                        <AgenticStepIndicator steps={activeAgenticSteps} reasoningText={reasoningText} />
                       </div>
                     )}
                   </div>

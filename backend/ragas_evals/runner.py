@@ -121,48 +121,57 @@ async def _score_context_relevance(llm, question: str, contexts: list[str]) -> f
     return await _llm_judge_score(llm, prompt)
 
 
-async def _score_topic_adherence(llm, question: str, answer: str, topics: list[str]) -> float:
-    """RAGAS TopicAdherence: does the agent stay on the expected topic?"""
-    topics_str = ", ".join(topics) if topics else question
-    prompt = (
-        "You are a strict evaluator assessing topic adherence for an AI agent.\n"
-        "Evaluate whether the answer stays on the expected topics and does not drift "
-        "into irrelevant areas.\n\n"
-        f"Expected topics: {topics_str}\n\n"
-        f"Question: {question}\n\n"
-        f"Answer: {answer[:600]}\n\n"
-        "Return ONLY a decimal between 0.0 (completely off-topic) and 1.0 (fully on-topic). No other text."
-    )
-    return await _llm_judge_score(llm, prompt)
-
-
 def _compute_tool_call_f1(called: list[str], expected: list[str]) -> tuple[float, float, float]:
-    """Compute precision, recall, F1 for tool call sets (order-independent)."""
+    """Precision, recall, F1 on tool name sets (order-independent, no LLM needed)."""
     called_set = set(called)
     expected_set = set(expected)
     if not expected_set and not called_set:
         return 1.0, 1.0, 1.0
     if not expected_set:
-        return 0.0, 1.0, 0.0  # called things when nothing expected
+        return 0.0, 1.0, 0.0
     if not called_set:
-        return 1.0, 0.0, 0.0  # nothing called, all expected missed
+        return 1.0, 0.0, 0.0
     precision = len(called_set & expected_set) / len(called_set)
     recall = len(called_set & expected_set) / len(expected_set)
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
     return round(precision, 3), round(recall, 3), round(f1, 3)
 
 
-async def _score_agent_goal_accuracy(llm, question: str, answer: str, reference: str) -> float:
-    """RAGAS AgentGoalAccuracy: did the agent achieve the expected goal/outcome?"""
-    prompt = (
-        "You are a strict evaluator assessing whether an AI agent achieved its intended goal.\n"
-        "Compare the agent's answer to the expected reference outcome.\n\n"
-        f"Question / Goal: {question}\n\n"
-        f"Expected outcome: {reference}\n\n"
-        f"Agent's answer: {answer[:600]}\n\n"
-        "Return ONLY a decimal between 0.0 (goal not achieved) and 1.0 (goal fully achieved). No other text."
-    )
-    return await _llm_judge_score(llm, prompt)
+def _build_ragas_llm():
+    """Build a RAGAS-native llm_factory LLM from the same Azure/Anthropic env vars.
+
+    For Azure we suppress the Anthropic SDK's `x-api-key` auth_headers so only
+    the `api-key` subscription key reaches the Azure APIM gateway.
+    """
+    import os
+    from anthropic import Anthropic, AsyncAnthropic
+    from ragas.llms import llm_factory
+
+    azure_key = os.getenv("AZURE_FOUNDRY_API_KEY")
+    azure_endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT", "").rstrip("/")
+    model = os.getenv("AZURE_FOUNDRY_MODEL", "claude-opus-4-6")
+
+    if azure_key and azure_endpoint:
+        class _AzureSync(Anthropic):
+            @property
+            def auth_headers(self) -> dict:  # type: ignore[override]
+                return {}
+
+            def _validate_headers(self, *_: object) -> None:  # type: ignore[override]
+                return  # Azure APIM uses `api-key`; SDK's X-Api-Key check not applicable
+
+        client = _AzureSync(
+            api_key=azure_key,
+            base_url=azure_endpoint,
+            default_headers={"api-key": azure_key},
+        )
+        return llm_factory(model, provider="anthropic", client=client)
+
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if anthropic_key.startswith("sk-ant-"):
+        return llm_factory("claude-opus-4-6", provider="anthropic", client=Anthropic(api_key=anthropic_key))
+
+    raise ValueError("No LLM configured for RAGAS agent metrics.")
 
 
 # ── Core runner ───────────────────────────────────────────────────────────────
@@ -174,15 +183,26 @@ async def run_ragas_evaluation(db, run_tag: str = "default") -> dict:
     from app.infrastructure.search import search_docs
     from langchain_core.messages import HumanMessage
 
-    # Optional RAGAS faithfulness
+    # Optional RAGAS — faithfulness + agent metrics
     ragas_available = False
+    ragas_agent_available = False
+    ragas_llm = None
     try:
-        from ragas import EvaluationDataset, SingleTurnSample, evaluate  # noqa: F401
-        from ragas.metrics.collections import Faithfulness  # noqa: F401
-        from ragas.llms import LangchainLLMWrapper  # noqa: F401
-
+        from ragas import EvaluationDataset, SingleTurnSample, MultiTurnSample, evaluate  # noqa: F401
+        from ragas.metrics.collections import (  # noqa: F401
+            Faithfulness, ToolCallAccuracy, TopicAdherence, AgentGoalAccuracy,
+        )
+        from ragas.messages import (  # noqa: F401
+            HumanMessage as RHMsg, AIMessage as RAIMsg, ToolCall as RToolCall,
+        )
         ragas_available = True
-        logger.info("RAGAS available — faithfulness will use RAGAS metric")
+        try:
+            ragas_llm = _build_ragas_llm()
+            ragas_agent_available = True
+            logger.info("RAGAS agent metrics enabled (ToolCallAccuracy, TopicAdherence, AgentGoalAccuracy)")
+        except Exception as e:
+            logger.warning("RAGAS agent LLM unavailable: %s — agent metrics via LLM judge", e)
+        logger.info("RAGAS available — faithfulness + agent metrics active")
     except ImportError:
         logger.warning("RAGAS not installed — falling back to LLM judge for all metrics")
 
@@ -314,7 +334,69 @@ async def run_ragas_evaluation(db, run_tag: str = "default") -> dict:
             logger.error("RAGAS faithfulness evaluation failed: %s", exc)
             ragas_available = False
 
-    # ── Step 3: Score all metrics per question ────────────────────────────────
+    # ── Step 3a: Native RAGAS agent metrics (batch) ───────────────────────────
+    # Build MultiTurnSamples for all questions that have reference data
+    agent_scores: dict[str, dict] = {}  # id → {tool_call_accuracy, topic_adherence, agent_goal_accuracy}
+
+    if ragas_available:
+        try:
+            from ragas import EvaluationDataset, MultiTurnSample, evaluate
+            from ragas.metrics.collections import ToolCallAccuracy, TopicAdherence, AgentGoalAccuracy
+            from ragas.messages import (
+                HumanMessage as RHMsg, AIMessage as RAIMsg, ToolCall as RToolCall,
+            )
+
+            mt_samples = []
+            mt_ids = []
+            for s in samples_data:
+                ref = ref_lookup.get(s["id"], {})
+                expected_tools = ref.get("expected_tools", [])
+                called_tools = s.get("advisor_tool_calls", [])
+                reference = ref.get("reference", "")
+                topics = ref.get("topics", [])
+
+                mt_samples.append(MultiTurnSample(
+                    user_input=[
+                        RHMsg(content=s["question"]),
+                        RAIMsg(
+                            content=s["answer"],
+                            tool_calls=[RToolCall(name=t, args={}) for t in called_tools],
+                        ),
+                    ],
+                    reference=reference or s["question"],
+                    reference_tool_calls=[RToolCall(name=t, args={}) for t in expected_tools],
+                    reference_topics=topics if topics else None,
+                ))
+                mt_ids.append(s["id"])
+
+            dataset = EvaluationDataset(samples=mt_samples)
+
+            # ToolCallAccuracy is rule-based — always run it
+            metrics_to_run = [ToolCallAccuracy()]
+            if ragas_agent_available:
+                metrics_to_run += [TopicAdherence(llm=ragas_llm), AgentGoalAccuracy(llm=ragas_llm)]
+
+            result_df = await asyncio.to_thread(
+                lambda: evaluate(dataset=dataset, metrics=metrics_to_run, show_progress=False).to_pandas()
+            )
+
+            for idx, sid in enumerate(mt_ids):
+                if idx < len(result_df):
+                    row = result_df.iloc[idx]
+                    agent_scores[sid] = {
+                        "tool_call_accuracy": round(float(row.get("tool_call_accuracy", 0.0)), 3)
+                            if row.get("tool_call_accuracy") is not None else None,
+                        "topic_adherence": round(float(row.get("topic_adherence", 0.0)), 3)
+                            if ragas_agent_available and row.get("topic_adherence") is not None else None,
+                        "agent_goal_accuracy": round(float(row.get("agent_goal_accuracy", 0.0)), 3)
+                            if ragas_agent_available and row.get("agent_goal_accuracy") is not None else None,
+                    }
+
+            logger.info("RAGAS agent metrics computed for %d samples", len(mt_ids))
+        except Exception as exc:
+            logger.error("RAGAS agent metrics batch failed: %s — using computed fallbacks", exc)
+
+    # ── Step 3b: Score RAG metrics per question + fill agent metric fallbacks ──
     scored_questions = []
     for s in samples_data:
         ref = ref_lookup.get(s["id"], {})
@@ -322,6 +404,7 @@ async def run_ragas_evaluation(db, run_tag: str = "default") -> dict:
         expected_tools: list[str] = ref.get("expected_tools", [])
         reference: str = ref.get("reference", "")
         topics: list[str] = ref.get("topics", [])
+        ag = agent_scores.get(s["id"], {})
 
         # Faithfulness
         faithfulness = faithfulness_scores.get(s["id"])
@@ -340,15 +423,31 @@ async def run_ragas_evaluation(db, run_tag: str = "default") -> dict:
         answer_rel = await _score_answer_relevancy(llm, s["question"], s["answer"])
         ctx_rel = await _score_context_relevance(llm, s["question"], s["contexts"])
 
-        # Agent / tool metrics
-        topic_adh = await _score_topic_adherence(llm, s["question"], s["answer"], topics)
-        goal_acc = await _score_agent_goal_accuracy(llm, s["question"], s["answer"], reference) if reference else None
+        # Agent metrics — prefer native RAGAS, fall back to computed F1
         _, _, tool_f1 = _compute_tool_call_f1(called_tools, expected_tools)
-        # Tool call accuracy: fraction of expected tools that were actually called
-        tool_acc = (
-            len(set(called_tools) & set(expected_tools)) / len(expected_tools)
-            if expected_tools else (1.0 if not called_tools else 0.5)
-        )
+        tool_acc = ag.get("tool_call_accuracy")
+        if tool_acc is None:
+            tool_acc = (
+                len(set(called_tools) & set(expected_tools)) / len(expected_tools)
+                if expected_tools else (1.0 if not called_tools else 0.5)
+            )
+        topic_adh = ag.get("topic_adherence")
+        if topic_adh is None:
+            # LLM judge fallback
+            topic_adh = await _llm_judge_score(
+                llm,
+                "Rate how well this answer stays on topic.\n"
+                f"Expected topics: {', '.join(topics) or s['question']}\n"
+                f"Answer: {s['answer'][:500]}\n"
+                "Return ONLY a decimal 0.0–1.0.",
+            )
+        goal_acc = ag.get("agent_goal_accuracy")
+        if goal_acc is None and reference:
+            goal_acc = await _llm_judge_score(
+                llm,
+                f"Did the agent achieve this goal?\nGoal: {reference}\nAnswer: {s['answer'][:500]}\n"
+                "Return ONLY a decimal 0.0–1.0.",
+            )
 
         scored_questions.append(
             {

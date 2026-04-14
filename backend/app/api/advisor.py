@@ -11,10 +11,41 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+import anthropic as _anthropic
+
 from app.infrastructure.db import get_db
 from app.infrastructure.search import search_docs
 
 logger = logging.getLogger(__name__)
+
+# ── Azure AI Foundry auth shims ───────────────────────────────────────────────
+# The Anthropic SDK always injects `X-Api-Key` via auth_headers(). Azure APIM
+# (grove-gateway) authenticates via `api-key` (subscription key) and will
+# reject or conflict with the extra Anthropic header. These thin subclasses
+# suppress auth_headers so only the `api-key` in default_headers reaches
+# the gateway — no x-api-key leaks through.
+
+
+class _AzureAnthropicSync(_anthropic.Anthropic):
+    """Anthropic client that suppresses X-Api-Key for Azure APIM (uses `api-key` instead)."""
+
+    @property
+    def auth_headers(self) -> dict:  # type: ignore[override]
+        return {}  # api-key is supplied via default_headers; no x-api-key sent
+
+    def _validate_headers(self, *_: object) -> None:  # type: ignore[override]
+        return  # Azure APIM auth is via `api-key`; SDK's X-Api-Key check is not applicable
+
+
+class _AzureAnthropicAsync(_anthropic.AsyncAnthropic):
+    """Async variant of _AzureAnthropicSync."""
+
+    @property
+    def auth_headers(self) -> dict:  # type: ignore[override]
+        return {}
+
+    def _validate_headers(self, headers: object, custom_headers: object) -> None:  # type: ignore[override]
+        return
 
 
 def _get_llm():
@@ -22,6 +53,10 @@ def _get_llm():
 
     Azure AI Foundry is the primary provider (configured via AZURE_FOUNDRY_* in deploy/.env).
     A real Anthropic key (sk-ant-*) in deploy/.env is used as fallback when Azure is not set.
+
+    URL construction: ChatAnthropic passes base_url to the Anthropic SDK, which calls
+    _enforce_trailing_slash() then concatenates the endpoint path (e.g. /v1/messages) via
+    raw_path bytes — so the full gateway path is preserved correctly without double-slashes.
     """
     from langchain_anthropic import ChatAnthropic
 
@@ -32,14 +67,25 @@ def _get_llm():
         model = os.getenv("AZURE_FOUNDRY_MODEL", "claude-opus-4-6")
         base_url = azure_endpoint.rstrip("/")
         logger.info("LLM: Azure AI Foundry (%s) at %s", model, base_url)
-        return ChatAnthropic(
+
+        # Build ChatAnthropic then replace its @cached_property client slots with
+        # our shims. Because @cached_property stores in __dict__, pre-populating
+        # __dict__ causes Python's attribute lookup to bypass the descriptor.
+        llm = ChatAnthropic(
             model=model,
-            api_key=azure_key,
+            api_key=azure_key,  # required by pydantic validation; not sent in requests
             base_url=base_url,
-            default_headers={"api-key": azure_key},
             temperature=0.3,
             max_tokens=4096,
         )
+        _common = dict(
+            api_key=azure_key,
+            base_url=base_url,
+            default_headers={"api-key": azure_key},
+        )
+        llm.__dict__["_client"] = _AzureAnthropicSync(**_common)
+        llm.__dict__["_async_client"] = _AzureAnthropicAsync(**_common)
+        return llm
 
     # 2. Direct Anthropic API (fallback) — requires sk-ant-* key in deploy/.env
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
@@ -48,7 +94,6 @@ def _get_llm():
         return ChatAnthropic(
             model="claude-opus-4-6",
             api_key=anthropic_key,
-            base_url="https://api.anthropic.com",
             temperature=0.3,
             max_tokens=4096,
         )
@@ -301,12 +346,15 @@ Key collections: documents (market intel + IEA policies), telemetry_events (gene
 Your conversation history is persisted in MongoDB — you remember previous messages in this session.
 
 ## TOOL USAGE (MANDATORY)
-For EVERY user question, use your tools before answering:
-1. ALWAYS call analyze_portfolio to understand positions, P&L, and risk exposure
-2. ALWAYS call search_policies for relevant EU/IEA regulations (REMIT, EU ETS, REPowerEU, CACM)
-3. ALWAYS call web_search for latest market news, prices, and current events
-4. Call get_generator_status if asking about power supply
-5. Call search_market_intel for research or ESG data
+Call tools in your FIRST action ONLY. Call ALL needed tools SIMULTANEOUSLY in one batch. NEVER repeat a tool call.
+REQUIRED for every question (call all at once in first action):
+1. analyze_portfolio — current positions, P&L, and risk
+2. search_policies — relevant EU/IEA regulations
+3. web_search — ONE comprehensive query for latest market data
+Optional (only if needed):
+4. get_generator_status — only if the question is about power supply
+5. search_market_intel — only if specific research or ESG data is needed
+After receiving ALL tool results, write your complete final answer. Do NOT call more tools after receiving results unless critically needed for a specific fact you don't have.
 
 ## INLINE RICH ELEMENTS
 You can embed rich UI elements inline in your markdown using @name{{...json...}} markers. The frontend renders these as interactive cards. Use them whenever you reference prices, positions, risks, or sources.
@@ -349,7 +397,7 @@ As an L3 agent, you MUST present decisions that require human authorization:
 - Hedging strategies that change portfolio risk profile
 - Use the CQRS/Event Sourcing audit trail to reconstruct trade history using the .fold() method when analyzing compliance issues
 
-Format each decision as a clear YES/NO question the trader can act on immediately.
+Format each decision as: `**DECISION N** — [question]? → **YES** / NO`
 
 ## STYLE RULES
 - Be direct and concise. No filler text.
@@ -413,7 +461,7 @@ async def advisor_chat(req: AdvisorRequest, client=Depends(get_db)):
 
             # With checkpointer + thread_id, only send the new message.
             # The checkpointer automatically restores previous conversation state.
-            config = {"configurable": {"thread_id": session_id}}
+            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 8}
             messages = [HumanMessage(content=req.message)]
 
             result = await agent.ainvoke({"messages": messages}, config)
@@ -474,10 +522,11 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
 
             from langchain_core.messages import HumanMessage
 
-            config = {"configurable": {"thread_id": session_id}}
+            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 8}
             messages = [HumanMessage(content=req.message)]
             tool_calls_used: list[str] = []
             full_answer = ""
+            tools_ever_started = False
 
             try:
                 async for event in agent.astream_events({"messages": messages}, config, version="v2"):
@@ -486,6 +535,7 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                     if etype == "on_tool_start":
                         name = event.get("name", "")
                         if name and not name.startswith("__"):
+                            tools_ever_started = True
                             tool_calls_used.append(name)
                             yield f"data: {json.dumps({'type': 'tool_start', 'name': name})}\n\n"
 
@@ -499,15 +549,21 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                         if chunk:
                             content = getattr(chunk, "content", "")
                             if isinstance(content, str) and content:
-                                full_answer += content
-                                yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
+                                if not tools_ever_started:
+                                    yield f"data: {json.dumps({'type': 'reasoning', 'text': content})}\n\n"
+                                else:
+                                    full_answer += content
+                                    yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
                             elif isinstance(content, list):
                                 for part in content:
                                     if isinstance(part, dict) and part.get("type") == "text":
                                         text = part.get("text", "")
                                         if text:
-                                            full_answer += text
-                                            yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
+                                            if not tools_ever_started:
+                                                yield f"data: {json.dumps({'type': 'reasoning', 'text': text})}\n\n"
+                                            else:
+                                                full_answer += text
+                                                yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
 
                 yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'tool_calls': tool_calls_used})}\n\n"
 

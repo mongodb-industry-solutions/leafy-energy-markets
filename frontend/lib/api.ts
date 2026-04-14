@@ -94,6 +94,7 @@ export type AdvisorStreamEvent =
   | { type: 'tool_start'; name: string }
   | { type: 'tool_end'; name: string }
   | { type: 'token'; text: string }
+  | { type: 'reasoning'; text: string }
   | { type: 'done'; session_id: string; tool_calls: string[] }
   | { type: 'error'; message: string };
 

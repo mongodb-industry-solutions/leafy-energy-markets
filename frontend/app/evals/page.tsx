@@ -144,12 +144,13 @@ const METRIC_DEFINITIONS: Record<string, { what: string; how: string; scorer: st
 };
 
 function MetricCard({
-  metricKey, label, value, darkMode,
+  metricKey, label, value, darkMode, accentColor,
 }: {
   metricKey: string;
   label: string;
   value: number | null | undefined;
   darkMode: boolean;
+  accentColor?: string;
 }) {
   const [open, setOpen] = useState(false);
   const color = scoreColor(value, darkMode);
@@ -157,9 +158,11 @@ function MetricCard({
   const trackBg = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const expandBg = darkMode ? 'rgba(255,255,255,0.04)' : palette.gray.light3;
   const def = METRIC_DEFINITIONS[metricKey];
+  const accent = accentColor ?? palette.green.base;
 
   return (
     <Card darkMode={darkMode} className={css`flex: 1; min-width: 240px; padding: 0; overflow: hidden;`}>
+      <div className={css`height: 3px; background: ${accent}; opacity: 0.85;`} />
       <div className={css`padding: 20px 24px 16px;`}>
         <Body className={css`font-weight: 600; color: ${labelColor}; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; margin-bottom: 10px;`}>
           {label}
@@ -222,6 +225,21 @@ function MetricCard({
         </>
       )}
     </Card>
+  );
+}
+
+// ── Section label ─────────────────────────────────────────────────────────────
+
+function SectionLabel({
+  label, accent, darkMode,
+}: { label: string; accent: string; darkMode: boolean }) {
+  return (
+    <div className={css`display: flex; align-items: center; gap: 8px;`}>
+      <div className={css`width: 3px; height: 16px; border-radius: 2px; background: ${accent}; flex-shrink: 0;`} />
+      <span className={css`font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: ${darkMode ? palette.gray.light1 : palette.gray.dark2};`}>
+        {label}
+      </span>
+    </div>
   );
 }
 
@@ -560,7 +578,6 @@ export default function EvalsPage() {
   const textColor = darkMode ? palette.gray.light2 : palette.gray.dark2;
   const mutedColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
   const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
-  const latestRowBg = darkMode ? 'rgba(255,255,255,0.05)' : palette.gray.light3;
 
   const fetchLatest = async () => {
     try {
@@ -663,25 +680,32 @@ export default function EvalsPage() {
       )}
 
       {/* Metric cards — RAG quality */}
-      <div className={css`display: flex; gap: 16px; flex-wrap: wrap;`}>
-        <MetricCard darkMode={darkMode} metricKey="faithfulness" label="Faithfulness" value={latestRun?.metrics.faithfulness} />
-        <MetricCard darkMode={darkMode} metricKey="answer_relevancy" label="Answer Relevancy" value={latestRun?.metrics.answer_relevancy} />
-        <MetricCard darkMode={darkMode} metricKey="context_relevance" label="Context Relevance" value={latestRun?.metrics.context_relevance} />
+      <div className={css`display: flex; flex-direction: column; gap: 10px;`}>
+        <SectionLabel label="RAG Quality Metrics" accent={palette.blue.base} darkMode={darkMode} />
+        <div className={css`display: flex; gap: 16px; flex-wrap: wrap;`}>
+          <MetricCard darkMode={darkMode} metricKey="faithfulness" label="Faithfulness" value={latestRun?.metrics.faithfulness} accentColor={palette.blue.base} />
+          <MetricCard darkMode={darkMode} metricKey="answer_relevancy" label="Answer Relevancy" value={latestRun?.metrics.answer_relevancy} accentColor={palette.blue.base} />
+          <MetricCard darkMode={darkMode} metricKey="context_relevance" label="Context Relevance" value={latestRun?.metrics.context_relevance} accentColor={palette.blue.base} />
+        </div>
       </div>
 
       {/* Metric cards — Agent / tool use */}
       {latestRun && (latestRun.metrics.topic_adherence != null || latestRun.metrics.tool_call_f1 != null) && (
-        <div className={css`display: flex; gap: 16px; flex-wrap: wrap;`}>
-          <MetricCard darkMode={darkMode} metricKey="topic_adherence" label="Topic Adherence" value={latestRun?.metrics.topic_adherence} />
-          <MetricCard darkMode={darkMode} metricKey="tool_call_accuracy" label="Tool Call Accuracy" value={latestRun?.metrics.tool_call_accuracy} />
-          <MetricCard darkMode={darkMode} metricKey="tool_call_f1" label="Tool Call F1" value={latestRun?.metrics.tool_call_f1} />
-          <MetricCard darkMode={darkMode} metricKey="agent_goal_accuracy" label="Agent Goal Accuracy" value={latestRun?.metrics.agent_goal_accuracy} />
+        <div className={css`display: flex; flex-direction: column; gap: 10px;`}>
+          <SectionLabel label="Agent & Tool-Use Metrics" accent={palette.purple.base} darkMode={darkMode} />
+          <div className={css`display: flex; gap: 16px; flex-wrap: wrap;`}>
+            <MetricCard darkMode={darkMode} metricKey="topic_adherence" label="Topic Adherence" value={latestRun?.metrics.topic_adherence} accentColor={palette.purple.base} />
+            <MetricCard darkMode={darkMode} metricKey="tool_call_accuracy" label="Tool Call Accuracy" value={latestRun?.metrics.tool_call_accuracy} accentColor={palette.purple.base} />
+            <MetricCard darkMode={darkMode} metricKey="tool_call_f1" label="Tool Call F1" value={latestRun?.metrics.tool_call_f1} accentColor={palette.purple.base} />
+            <MetricCard darkMode={darkMode} metricKey="agent_goal_accuracy" label="Agent Goal Accuracy" value={latestRun?.metrics.agent_goal_accuracy} accentColor={palette.purple.base} />
+          </div>
         </div>
       )}
 
       {/* ── Per-question breakdown with search + pagination ─── */}
       {latestRun && latestRun.questions && latestRun.questions.length > 0 && (
         <Card darkMode={darkMode} className={css`padding: 24px;`}>
+          <div className={css`height: 3px; background: linear-gradient(90deg, ${palette.blue.base} 0%, ${palette.purple.base} 100%); margin: -24px -24px 24px; border-radius: 6px 6px 0 0; opacity: 0.7;`} />
           <div className={css`display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;`}>
             <H3 darkMode={darkMode}>Per-Question Results</H3>
             <div className={css`display: flex; align-items: center; gap: 10px; flex-wrap: wrap;`}>
@@ -781,6 +805,7 @@ export default function EvalsPage() {
       {/* ── Hallucination Term Analysis ──────────────────────── */}
       {interactions.length > 0 && hallucinationTerms.length > 0 && (
         <Card darkMode={darkMode} className={css`padding: 24px;`}>
+          <div className={css`height: 3px; background: ${palette.red.base}; margin: -24px -24px 24px; border-radius: 6px 6px 0 0; opacity: 0.6;`} />
           <div className={css`margin-bottom: 16px;`}>
             <H3 darkMode={darkMode}>Hallucination Risk by Query Term</H3>
             <Body className={css`color: ${mutedColor}; font-size: 12px; margin-top: 4px;`}>
@@ -932,30 +957,37 @@ export default function EvalsPage() {
       {/* Run history */}
       {recentRuns.length > 0 && (
         <Card darkMode={darkMode} className={css`padding: 24px;`}>
+          <div className={css`height: 3px; background: ${darkMode ? palette.gray.dark2 : palette.gray.light2}; margin: -24px -24px 24px; border-radius: 6px 6px 0 0;`} />
           <H3 darkMode={darkMode} className={css`margin-bottom: 16px;`}>Run History</H3>
-          <div className={css`display: flex; flex-direction: column; gap: 8px;`}>
+          <div className={css`display: flex; flex-direction: column; gap: 6px;`}>
             {recentRuns.map((run, i) => (
               <div
                 key={run._id}
                 className={css`
                   display: flex; align-items: center; gap: 16px;
                   padding: 10px 14px; border-radius: 6px;
-                  background: ${i === 0 ? latestRowBg : 'transparent'};
-                  border: 1px solid ${i === 0 ? borderColor : 'transparent'};
-                  flex-wrap: wrap;
+                  background: ${i === 0 ? (darkMode ? 'rgba(0,163,92,0.08)' : 'rgba(0,163,92,0.06)') : 'transparent'};
+                  border: 1px solid ${i === 0 ? (darkMode ? palette.green.dark2 : palette.green.light2) : 'transparent'};
+                  flex-wrap: wrap; transition: background 0.12s;
                 `}
               >
-                <Body className={css`color: ${textColor}; min-width: 200px; font-size: 13px;`}>
-                  {fmtDate(run.timestamp)}
-                  {i === 0 && <Badge className={css`margin-left: 8px;`} variant="green">latest</Badge>}
-                </Body>
-                <div className={css`display: flex; gap: 20px; font-size: 13px;`}>
+                <div className={css`display: flex; align-items: center; gap: 8px; min-width: 210px;`}>
+                  {i === 0 && <div className={css`width: 6px; height: 6px; border-radius: 50%; background: ${palette.green.base}; flex-shrink: 0;`} />}
+                  <Body className={css`color: ${textColor}; font-size: 13px;`}>
+                    {fmtDate(run.timestamp)}
+                  </Body>
+                  {i === 0 && <Badge variant="green">latest</Badge>}
+                </div>
+                <div className={css`display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap;`}>
                   {[
-                    { label: 'Faithfulness', v: run.metrics.faithfulness },
-                    { label: 'Ans. Relevancy', v: run.metrics.answer_relevancy },
-                    { label: 'Ctx. Relevance', v: run.metrics.context_relevance },
-                  ].map(({ label, v }) => (
-                    <span key={label}>
+                    { label: 'Faithful', v: run.metrics.faithfulness, accent: palette.blue.base },
+                    { label: 'Ans. Rel.', v: run.metrics.answer_relevancy, accent: palette.blue.base },
+                    { label: 'Ctx. Rel.', v: run.metrics.context_relevance, accent: palette.blue.base },
+                    ...(run.metrics.tool_call_f1 != null ? [{ label: 'Tool F1', v: run.metrics.tool_call_f1, accent: palette.purple.base }] : []),
+                    ...(run.metrics.agent_goal_accuracy != null ? [{ label: 'Goal Acc.', v: run.metrics.agent_goal_accuracy, accent: palette.purple.base }] : []),
+                  ].map(({ label, v, accent }) => (
+                    <span key={label} className={css`display: flex; align-items: center; gap: 4px;`}>
+                      <span className={css`width: 5px; height: 5px; border-radius: 50%; background: ${accent}; flex-shrink: 0; opacity: 0.7;`} />
                       <span className={css`color: ${mutedColor};`}>{label}: </span>
                       <strong style={{ color: scoreColor(v, darkMode) }}>{fmtScore(v)}</strong>
                     </span>

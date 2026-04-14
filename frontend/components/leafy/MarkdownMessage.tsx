@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { css } from '@emotion/css';
+import { palette } from '@leafygreen-ui/palette';
 import { Streamdown } from 'streamdown';
 import 'streamdown/styles.css';
 import {
@@ -67,6 +68,24 @@ interface MarkdownMessageProps {
 export default function MarkdownMessage({ text, isAnimating }: MarkdownMessageProps) {
   const { darkMode } = useDarkMode();
 
+  const markdownWrapperClass = css`
+    h3 {
+      border-left: 3px solid ${palette.green.base};
+      padding-left: 8px;
+      margin: 16px 0 8px;
+      font-size: 13px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    ol > li {
+      margin-bottom: 12px;
+      padding-left: 4px;
+    }
+    strong {
+      color: ${darkMode ? palette.green.light1 : palette.green.dark1};
+    }
+  `;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function renderElement(name: string, data: Record<string, unknown>): React.ReactNode {
     try {
@@ -87,11 +106,15 @@ export default function MarkdownMessage({ text, isAnimating }: MarkdownMessagePr
 
   // Fast path: no custom elements → render all markdown at once
   if (segments.length === 1 && segments[0].type === 'text') {
-    return <Streamdown isAnimating={isAnimating}>{normalized}</Streamdown>;
+    return (
+      <div className={markdownWrapperClass}>
+        <Streamdown isAnimating={isAnimating}>{normalized}</Streamdown>
+      </div>
+    );
   }
 
   return (
-    <div>
+    <div className={markdownWrapperClass}>
       {segments.map((seg, i) => {
         if (seg.type === 'text') {
           return (

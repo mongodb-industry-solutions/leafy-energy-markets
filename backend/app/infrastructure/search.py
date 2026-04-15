@@ -6,22 +6,26 @@ VECTOR_INDEX = "vector_index"
 
 
 def vector_search(coll, query_embedding: list[float], limit: int, type_filter: Optional[str] = None):
-    """Run $vectorSearch aggregation pipeline."""
+    """Run $vectorSearch aggregation pipeline.
+
+    The type filter is applied inside $vectorSearch (pre-filter) so numCandidates is
+    drawn from the filtered set — avoids the post-$match result starvation bug.
+    """
+    vector_stage: dict = {
+        "index": VECTOR_INDEX,
+        "path": "embedding",
+        "queryVector": query_embedding,
+        "numCandidates": limit * 15,
+        "limit": limit,
+    }
+    if type_filter:
+        vector_stage["filter"] = {"type": {"$eq": type_filter}}
+
     pipeline = [
-        {
-            "$vectorSearch": {
-                "index": VECTOR_INDEX,
-                "path": "embedding",
-                "queryVector": query_embedding,
-                "numCandidates": limit * 10,
-                "limit": limit,
-            }
-        },
+        {"$vectorSearch": vector_stage},
         {"$addFields": {"vs_score": {"$meta": "vectorSearchScore"}}},
         {"$project": {"embedding": 0}},
     ]
-    if type_filter:
-        pipeline.insert(1, {"$match": {"type": type_filter}})
     return list(coll.aggregate(pipeline))
 
 

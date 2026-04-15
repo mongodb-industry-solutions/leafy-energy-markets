@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useCallback, useEffect } from 'react';
+import { Suspense, useState, useCallback, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { css, keyframes } from '@emotion/css';
 import { palette } from '@leafygreen-ui/palette';
@@ -65,6 +65,26 @@ function LeafyContent() {
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   const [reasoningText, setReasoningText] = useState('');
 
+  // Typewriter: full received text lives in a ref; a 16ms interval drips it into the message
+  const tokenAccumRef = useRef('');
+
+  useEffect(() => {
+    if (!streamingMsgId) {
+      tokenAccumRef.current = '';
+      return;
+    }
+    const id = setInterval(() => {
+      const target = tokenAccumRef.current;
+      setMessages((prev) => {
+        const msg = prev.find((m) => m.id === streamingMsgId);
+        if (!msg || msg.content.length >= target.length) return prev;
+        const next = target.slice(0, msg.content.length + 6); // ~6 chars per frame @ 60fps
+        return prev.map((m) => (m.id === streamingMsgId ? { ...m, content: next } : m));
+      });
+    }, 16);
+    return () => clearInterval(id);
+  }, [streamingMsgId]);
+
   // Initialise client-side only to avoid SSR/client hydration mismatch
   const [sessionId, setSessionId] = useState('');
   const [serverSessionId, setServerSessionId] = useState<string | null>(null);
@@ -103,8 +123,7 @@ function LeafyContent() {
       .map((m) => ({ role: m.role, content: m.content }));
 
     const msgId = `msg-${Date.now()}-advisor`;
-    // Mutable ref for accumulated tokens within this send call
-    let tokenBuffer = '';
+    tokenAccumRef.current = '';
     let firstToken = true;
     const steps: AgenticStep[] = [];
     const toolStartTimes: Record<string, number> = {};
@@ -147,28 +166,23 @@ function LeafyContent() {
           setReasoningText(prev => prev + event.text);
 
         } else if (event.type === 'token') {
-          tokenBuffer += event.text;
+          tokenAccumRef.current += event.text;
           if (firstToken) {
             firstToken = false;
             setIsTyping(false);
-            // Don't clear steps — keep them visible as "reasoning" panel
+            // Create the message with empty content — typewriter interval will fill it
             setMessages((prev) => [
               ...prev,
               {
                 id: msgId,
                 role: 'assistant' as const,
-                content: tokenBuffer,
+                content: '',
                 timestamp: new Date().toISOString(),
               },
             ]);
             setStreamingMsgId(msgId);
-          } else {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === msgId ? { ...m, content: tokenBuffer } : m
-              )
-            );
           }
+          // No else — typewriter useEffect handles content updates at 60fps
 
         } else if (event.type === 'done') {
           if (event.session_id && !serverSessionId) {
@@ -179,11 +193,12 @@ function LeafyContent() {
             s.status === 'running' ? { ...s, status: 'completed' as const } : s
           );
           setActiveAgenticSteps(finalSteps);
-          // Ensure final content is set
-          if (!firstToken) {
+          // Flush remaining content immediately (typewriter completes on next tick)
+          const finalContent = tokenAccumRef.current;
+          if (!firstToken && finalContent) {
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === msgId ? { ...m, content: tokenBuffer } : m
+                m.id === msgId ? { ...m, content: finalContent } : m
               )
             );
           }
@@ -405,7 +420,28 @@ function LeafyContent() {
                   </div>
                 )}
 
-                {/* 3. Streaming message — rendered AFTER reasoning so user sees steps first */}
+                {/* 3. "Leafying" indicator — all steps done, waiting for first token */}
+                {activeAgenticSteps !== null &&
+                  activeAgenticSteps.length > 0 &&
+                  activeAgenticSteps.every((s) => s.status === 'completed') &&
+                  !streamingMsgId && (
+                  <div className={css`
+                    display: flex; align-items: center; gap: 8px;
+                    padding: 6px 2px;
+                    color: ${darkMode ? palette.green.light1 : palette.green.dark1};
+                    font-size: 12px; font-style: italic;
+                    animation: ${fadeIn} 0.2s ease;
+                  `}>
+                    <span className={css`
+                      width: 6px; height: 6px; border-radius: 50%;
+                      background: ${palette.green.base};
+                      animation: ${blink} 0.9s ease-in-out infinite;
+                    `} />
+                    …Leafying
+                  </div>
+                )}
+
+                {/* 4. Streaming message — rendered AFTER reasoning so user sees steps first */}
                 {streamingMsgId && (
                   <ChatContainer
                     messages={messages.filter((m) => m.id === streamingMsgId)}

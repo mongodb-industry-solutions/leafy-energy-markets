@@ -1,7 +1,7 @@
 'use client';
 
 import { css, keyframes } from '@emotion/css';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from '@leafygreen-ui/button';
 import Card from '@leafygreen-ui/card';
 import Badge from '@leafygreen-ui/badge';
@@ -10,7 +10,6 @@ import { H3, Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '../../components/Providers';
 import PageHeader from '@/components/shared/PageHeader';
-import { BarChart, Bar, XAxis, YAxis, Cell, LabelList, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import TextInput from '@leafygreen-ui/text-input';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -464,101 +463,6 @@ function QuestionRow({
   );
 }
 
-// ── Term Bubble helpers ───────────────────────────────────────────────────────
-
-interface TermHallucinationData {
-  term: string;
-  avgFaithfulness: number | null;
-  queryCount: number;
-  evalCount: number;
-  tools: string[];
-}
-
-const STOP_WORDS = new Set([
-  'a','an','the','and','or','but','in','on','at','to','for','of','with','by',
-  'from','is','are','was','were','be','been','being','have','has','had','do',
-  'does','did','will','would','could','should','may','might','can','this','that',
-  'these','those','it','its','i','you','we','they','he','she','what','how',
-  'why','when','where','which','who','any','all','each','both','few','more',
-  'most','other','into','through','during','before','after','above','below',
-  'between','out','off','over','under','again','then','here','there','s','t',
-]);
-
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 3 && !STOP_WORDS.has(w));
-}
-
-function extractHallucinationTerms(
-  interactions: AdvisorInteraction[],
-  evalQuestions: QuestionScore[],
-): TermHallucinationData[] {
-  // Frequency + tool usage from real advisor interactions
-  const freq: Record<string, { count: number; tools: Set<string> }> = {};
-  for (const item of interactions) {
-    for (const word of tokenize(item.question)) {
-      if (!freq[word]) freq[word] = { count: 0, tools: new Set() };
-      freq[word].count++;
-      for (const t of item.tool_calls ?? []) freq[word].tools.add(t);
-    }
-  }
-
-  // Faithfulness scores per term from eval questions
-  const faithMap: Record<string, number[]> = {};
-  for (const q of evalQuestions) {
-    if (q.scores.faithfulness == null) continue;
-    const seen = new Set<string>();
-    for (const word of tokenize(q.question)) {
-      if (seen.has(word)) continue;
-      seen.add(word);
-      if (!faithMap[word]) faithMap[word] = [];
-      faithMap[word].push(q.scores.faithfulness);
-    }
-  }
-
-  const hasEvalData = Object.keys(faithMap).length > 0;
-
-  if (hasEvalData) {
-    // Sort by avg faithfulness ascending — worst (most hallucination) first
-    return Object.entries(faithMap)
-      .map(([term, scores]) => {
-        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-        const interData = freq[term];
-        return {
-          term,
-          avgFaithfulness: avg,
-          queryCount: interData?.count ?? 0,
-          evalCount: scores.length,
-          tools: interData ? [...interData.tools] : [],
-        };
-      })
-      .sort((a, b) => (a.avgFaithfulness ?? 1) - (b.avgFaithfulness ?? 1))
-      .slice(0, 15);
-  }
-
-  // Fallback: just frequency when no eval faithfulness data yet
-  return Object.entries(freq)
-    .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 15)
-    .map(([term, v]) => ({
-      term,
-      avgFaithfulness: null,
-      queryCount: v.count,
-      evalCount: 0,
-      tools: [...v.tools],
-    }));
-}
-
-function termBarColor(v: number | null): string {
-  if (v == null) return palette.green.base;
-  if (v < 0.5) return palette.red.base;
-  if (v < 0.7) return palette.yellow.dark2;
-  return palette.green.base;
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function EvalsPage() {
@@ -640,12 +544,6 @@ export default function EvalsPage() {
     (currentPage - 1) * PAGE_SIZE,
     currentPage * PAGE_SIZE,
   );
-  const hallucinationTerms = useMemo(
-    () => extractHallucinationTerms(interactions, latestRun?.questions ?? []),
-    [interactions, latestRun],
-  );
-  const hasEvalFaithfulness = hallucinationTerms.some(t => t.avgFaithfulness != null);
-
   return (
     <div className={css`display: flex; flex-direction: column; gap: 24px;`}>
       {/* Header */}
@@ -802,157 +700,6 @@ export default function EvalsPage() {
         </Card>
       )}
 
-      {/* ── Hallucination Term Analysis ──────────────────────── */}
-      {interactions.length > 0 && hallucinationTerms.length > 0 && (
-        <Card darkMode={darkMode} className={css`padding: 24px;`}>
-          <div className={css`height: 3px; background: ${palette.red.base}; margin: -24px -24px 24px; border-radius: 6px 6px 0 0; opacity: 0.6;`} />
-          <div className={css`margin-bottom: 16px;`}>
-            <H3 darkMode={darkMode}>Hallucination Risk by Query Term</H3>
-            <Body className={css`color: ${mutedColor}; font-size: 12px; margin-top: 4px;`}>
-              {hasEvalFaithfulness
-                ? `Terms from eval questions ranked by avg faithfulness — red bars indicate hallucination risk. Based on ${interactions.length} advisor queries and ${latestRun?.questions?.length ?? 0} eval cases.`
-                : `Top query terms from ${interactions.length} EnerLeafy AI queries. Run evaluations to see hallucination risk scores.`}
-            </Body>
-          </div>
-
-          <div className={css`display: grid; grid-template-columns: 1fr 220px; gap: 24px; align-items: start;`}>
-            {/* Horizontal bar chart */}
-            <div style={{ height: Math.max(280, hallucinationTerms.length * 34) }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  layout="vertical"
-                  data={hallucinationTerms}
-                  margin={{ top: 4, right: 56, bottom: 4, left: 8 }}
-                  barCategoryGap="20%"
-                >
-                  <CartesianGrid
-                    horizontal={false}
-                    strokeDasharray="3 3"
-                    stroke={darkMode ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}
-                  />
-                  <XAxis
-                    type="number"
-                    domain={hasEvalFaithfulness ? [0, 1] : [0, 'auto']}
-                    tickFormatter={hasEvalFaithfulness ? v => `${Math.round(v * 100)}%` : undefined}
-                    tick={{ fontSize: 10, fill: mutedColor }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="term"
-                    width={90}
-                    tick={{ fontSize: 12, fill: textColor, fontWeight: 600 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  {hasEvalFaithfulness && (
-                    <ReferenceLine
-                      x={0.7}
-                      stroke={darkMode ? palette.yellow.light2 : palette.yellow.dark2}
-                      strokeDasharray="4 3"
-                      label={{ value: '70%', position: 'top', fontSize: 10, fill: mutedColor }}
-                    />
-                  )}
-                  <Tooltip
-                    cursor={{ fill: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}
-                    content={({ active, payload }) => {
-                      if (!active || !payload?.length) return null;
-                      const d = payload[0].payload as TermHallucinationData;
-                      return (
-                        <div className={css`background: ${darkMode ? palette.gray.dark3 : palette.white}; border: 1px solid ${borderColor}; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: ${textColor}; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 180px;`}>
-                          <div className={css`font-weight: 700; font-size: 13px; margin-bottom: 6px;`}>&ldquo;{d.term}&rdquo;</div>
-                          {d.avgFaithfulness != null && (
-                            <div className={css`margin-bottom: 3px;`}>
-                              <span className={css`color: ${mutedColor};`}>Avg faithfulness: </span>
-                              <span className={css`font-weight: 600; color: ${termBarColor(d.avgFaithfulness)};`}>{Math.round(d.avgFaithfulness * 100)}%</span>
-                              {d.avgFaithfulness < 0.5 && <span className={css`margin-left: 6px; color: ${palette.red.base}; font-size: 11px;`}>⚠ High hallucination risk</span>}
-                            </div>
-                          )}
-                          {d.evalCount > 0 && (
-                            <div className={css`color: ${mutedColor};`}>Appears in {d.evalCount} eval question{d.evalCount > 1 ? 's' : ''}</div>
-                          )}
-                          {d.queryCount > 0 && (
-                            <div className={css`color: ${mutedColor};`}>Asked {d.queryCount}× by users</div>
-                          )}
-                          {d.tools.length > 0 && (
-                            <div className={css`margin-top: 5px; padding-top: 5px; border-top: 1px solid ${borderColor}; color: ${darkMode ? palette.green.light1 : palette.green.dark1};`}>
-                              Tools: {d.tools.map(t => TOOL_LABELS[t] || t).join(', ')}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }}
-                  />
-                  <Bar
-                    dataKey={hasEvalFaithfulness ? 'avgFaithfulness' : 'queryCount'}
-                    radius={[0, 4, 4, 0]}
-                    maxBarSize={22}
-                  >
-                    {hallucinationTerms.map(entry => (
-                      <Cell key={entry.term} fill={termBarColor(entry.avgFaithfulness)} fillOpacity={0.85} />
-                    ))}
-                    <LabelList
-                      dataKey={hasEvalFaithfulness ? 'avgFaithfulness' : 'queryCount'}
-                      position="right"
-                      formatter={(v: number) => hasEvalFaithfulness ? `${Math.round(v * 100)}%` : `${v}×`}
-                      style={{ fill: mutedColor, fontSize: 11 }}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Sidebar: legend + tool usage */}
-            <div>
-              {hasEvalFaithfulness && (
-                <div className={css`margin-bottom: 16px;`}>
-                  <div className={css`font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: ${mutedColor}; margin-bottom: 8px;`}>Faithfulness Legend</div>
-                  {[
-                    { label: '< 50% — High risk', color: palette.red.base },
-                    { label: '50–70% — Moderate', color: palette.yellow.dark2 },
-                    { label: '> 70% — Low risk', color: palette.green.base },
-                  ].map(row => (
-                    <div key={row.label} className={css`display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; color: ${textColor};`}>
-                      <div className={css`width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; background: ${row.color};`} />
-                      {row.label}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className={css`padding-top: ${hasEvalFaithfulness ? '12px' : '0'}; border-top: ${hasEvalFaithfulness ? `1px solid ${borderColor}` : 'none'};`}>
-                <div className={css`font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: ${mutedColor}; margin-bottom: 8px;`}>
-                  Tool Usage
-                </div>
-                {(() => {
-                  const toolCounts: Record<string, number> = {};
-                  for (const item of interactions) {
-                    for (const t of item.tool_calls ?? []) {
-                      toolCounts[t] = (toolCounts[t] ?? 0) + 1;
-                    }
-                  }
-                  const total = Object.values(toolCounts).reduce((a, b) => a + b, 0) || 1;
-                  return Object.entries(toolCounts)
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 6)
-                    .map(([tool, count]) => (
-                      <div key={tool} className={css`margin-bottom: 6px;`}>
-                        <div className={css`display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;`}>
-                          <span className={css`color: ${textColor};`}>{TOOL_LABELS[tool] || tool}</span>
-                          <span className={css`color: ${mutedColor};`}>{count}×</span>
-                        </div>
-                        <div className={css`height: 3px; border-radius: 2px; background: ${darkMode ? palette.gray.dark2 : palette.gray.light2};`}>
-                          <div className={css`height: 100%; width: ${Math.round((count / total) * 100)}%; background: ${darkMode ? palette.green.light1 : palette.green.dark1}; border-radius: 2px;`} />
-                        </div>
-                      </div>
-                    ));
-                })()}
-              </div>
-            </div>
-          </div>
-        </Card>
-      )}
 
       {/* Run history */}
       {recentRuns.length > 0 && (

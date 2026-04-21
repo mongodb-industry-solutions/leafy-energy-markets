@@ -197,24 +197,19 @@ export const searchDocuments: SearchDocument[] = [
 
 export const suggestedPrompts: SuggestedPrompt[] = [
   {
-    title: 'EU Policy Impact',
-    description: 'Search IEA policies and analyze impact on my portfolio',
-    prompt: 'Search for the latest EU energy policies from the IEA database and analyze how they impact my current portfolio positions. Give me specific trade recommendations.',
-  },
-  {
     title: 'Market Analysis',
-    description: 'Analyze market conditions and recommend trades',
-    prompt: 'Analyze my current portfolio positions, check current market conditions via web search, and recommend specific trades I should make today with entry prices and rationale.',
+    description: 'Analyze live prices, weather forecasts, and fleet output',
+    prompt: 'Analyze my fleet\'s current output and the live market prices across Day-Ahead, Intraday, and Flexibility channels. Factor in the latest weather forecasts affecting my wind and solar assets. What market trends should I be watching today?',
   },
   {
     title: 'Risk Assessment',
     description: 'Identify portfolio risks and hedging strategies',
-    prompt: 'Assess the key risks in my energy portfolio including concentration risk, regulatory risk, and market exposure. Suggest specific hedging strategies.',
+    prompt: 'Assess the key risks in my renewable energy fleet: weather-driven output variance, position gap exposure, price volatility across channels, and EU regulatory risk (REMIT, EU ETS). Suggest specific hedging strategies for my current positions.',
   },
   {
-    title: 'Rotterdam Supply Analysis',
-    description: 'Analyze vessel cargo impact on European energy prices',
-    prompt: 'Analyze the current fleet of tankers and LNG carriers heading to Rotterdam. How will their cargo — Norwegian crude, Nigerian oil, Qatari LNG, and Baltic supplies — impact TTF gas, Brent crude, and EU carbon prices? Factor in EU regulations (REMIT, EU ETS, REPowerEU) and my current portfolio exposure.',
+    title: 'Trade Recommendations',
+    description: 'Optimal sell strategy for current fleet output',
+    prompt: 'Based on my fleet\'s live output by asset type, current market prices, and weather forecasts, recommend the optimal allocation strategy. Which asset types should I sell on which channels (Day-Ahead vs Intraday vs Flexibility), at what volumes, and what price floors should I set? Prioritize revenue maximization while managing gap risk.',
   },
 ];
 

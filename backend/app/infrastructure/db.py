@@ -20,14 +20,14 @@ _client: MongoClient | None = None
 
 POOL_DEFAULTS = dict(
     maxPoolSize=50,
-    minPoolSize=5,
+    minPoolSize=2,
     maxIdleTimeMS=45_000,
     retryWrites=True,
     retryReads=True,
     w="majority",
-    serverSelectionTimeoutMS=10_000,
-    connectTimeoutMS=10_000,
-    socketTimeoutMS=30_000,
+    serverSelectionTimeoutMS=4_000,   # fail fast — 4s instead of 10s
+    connectTimeoutMS=4_000,
+    socketTimeoutMS=8_000,            # 8s instead of 30s — prevents event-loop blocking
     appName="leafy-energy-markets",
 )
 

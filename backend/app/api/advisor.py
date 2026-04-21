@@ -1,5 +1,6 @@
 """Agentic Leafy AI advisor with LangChain ReAct agent + MongoDB MCP Server + conversation memory."""
 
+import asyncio
 import os
 import uuid
 import json
@@ -64,7 +65,7 @@ def _get_llm():
     azure_key = os.getenv("AZURE_FOUNDRY_API_KEY")
     azure_endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT")
     if azure_key and azure_endpoint:
-        model = os.getenv("AZURE_FOUNDRY_MODEL", "claude-opus-4-6")
+        model = "claude-sonnet-4-6"  # hardcoded for speed; was os.getenv("AZURE_FOUNDRY_MODEL")
         base_url = azure_endpoint.rstrip("/")
         logger.info("LLM: Azure AI Foundry (%s) at %s", model, base_url)
 
@@ -90,9 +91,9 @@ def _get_llm():
     # 2. Direct Anthropic API (fallback) — requires sk-ant-* key in deploy/.env
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
     if anthropic_key.startswith("sk-ant-"):
-        logger.info("LLM: Anthropic direct (claude-opus-4-6)")
+        logger.info("LLM: Anthropic direct (claude-sonnet-4-6)")
         return ChatAnthropic(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             api_key=anthropic_key,
             temperature=0.3,
             max_tokens=4096,
@@ -122,34 +123,40 @@ _checkpointer_instance = None
 
 
 def _get_checkpointer(mongo_client):
-    """Return a singleton MongoDBSaver checkpointer for conversation persistence."""
+    """Return a MongoDBSaver checkpointer, or None if MongoDB is unavailable."""
     global _checkpointer_instance
     if _checkpointer_instance is None:
-        from langgraph.checkpoint.mongodb import MongoDBSaver
-        _checkpointer_instance = MongoDBSaver(mongo_client, db_name=DB_NAME)
-        logger.info("MongoDBSaver checkpointer initialized (db=%s)", DB_NAME)
+        try:
+            from langgraph.checkpoint.mongodb import MongoDBSaver
+            _checkpointer_instance = MongoDBSaver(mongo_client, db_name=DB_NAME)
+            logger.info("MongoDBSaver checkpointer initialized (db=%s)", DB_NAME)
+        except Exception as exc:
+            logger.warning("MongoDBSaver unavailable — running without memory: %s", exc)
+            return None
     return _checkpointer_instance
 
 
 # ── Request / Response models ─────────────────────────────
 
 class PositionInput(BaseModel):
-    id: str
-    instrument: str
-    type: str
-    quantity: float
-    avgPrice: float
-    currentPrice: float
-    unrealizedPnl: float
+    """Legacy format — kept for backwards compatibility."""
+    id: str = ""
+    instrument: str = ""
+    type: str = ""
+    quantity: float = 0
+    avgPrice: float = 0
+    currentPrice: float = 0
+    unrealizedPnl: float = 0
 
 
 class GeneratorInput(BaseModel):
-    id: str
-    name: str
-    region: str
-    fuel: str
-    capacity_mw: float
-    status: str
+    """Legacy format — kept for backwards compatibility."""
+    id: str = ""
+    name: str = ""
+    region: str = ""
+    fuel: str = ""
+    capacity_mw: float = 0
+    status: str = ""
 
 
 class ChatHistoryItem(BaseModel):
@@ -160,8 +167,8 @@ class ChatHistoryItem(BaseModel):
 class AdvisorRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
-    portfolio: list[PositionInput] = Field(default_factory=list)
-    generators: list[GeneratorInput] = Field(default_factory=list)
+    portfolio: list[dict] = Field(default_factory=list)  # Fleet assets or legacy positions
+    generators: list[dict] = Field(default_factory=list)  # Context objects or legacy generators
     history: list[ChatHistoryItem] = Field(default_factory=list)
 
 
@@ -216,7 +223,7 @@ async def _enter_mcp_client(stack: AsyncExitStack) -> list:
 
 # ── LangChain agent builder ──────────────────────────────
 
-def _build_agent(coll, portfolio: list[PositionInput], generators: list[GeneratorInput], mcp_tools: list | None = None, checkpointer=None):
+def _build_agent(coll, portfolio: list[dict], generators: list[dict], mcp_tools: list | None = None, checkpointer=None):
     """Build a LangChain ReAct agent with domain tools + optional MCP tools + optional checkpointer."""
     from langchain_core.tools import tool
     from langgraph.prebuilt import create_react_agent
@@ -246,122 +253,128 @@ def _build_agent(coll, portfolio: list[PositionInput], generators: list[Generato
 
     @tool
     def analyze_portfolio() -> str:
-        """Analyze the trader's current portfolio positions. Returns concentration breakdown, P&L summary, and risk flags."""
-        if not portfolio:
-            return "No portfolio positions available."
+        """Analyze the trader's fleet assets, live market context, and portfolio state. Returns fleet output by type, position gap, P&L, and market prices."""
+        if not portfolio and not generators:
+            return "No fleet or portfolio data available. Start the simulation to see live data."
 
-        total_value = sum(p.currentPrice * p.quantity for p in portfolio)
-        total_pnl = sum(p.unrealizedPnl for p in portfolio)
+        lines = []
 
-        by_type: dict[str, dict] = {}
-        for p in portfolio:
-            if p.type not in by_type:
-                by_type[p.type] = {"count": 0, "value": 0, "pnl": 0}
-            by_type[p.type]["count"] += 1
-            by_type[p.type]["value"] += p.currentPrice * p.quantity
-            by_type[p.type]["pnl"] += p.unrealizedPnl
+        # Fleet assets (sent as portfolio from frontend)
+        if portfolio:
+            total_output = sum(a.get("currentOutputMw", 0) for a in portfolio)
+            total_forecast = sum(a.get("forecastOutputMw", 0) for a in portfolio)
+            total_capacity = sum(a.get("capacityMw", 0) for a in portfolio)
 
-        lines = [
-            f"Total positions: {len(portfolio)}",
-            f"Total portfolio value: EUR {total_value:,.0f}",
-            f"Total unrealized P&L: EUR {total_pnl:,.0f}",
-            "",
-            "Breakdown by type:",
-        ]
-        for t, data in sorted(by_type.items()):
-            pct = (data["value"] / total_value * 100) if total_value else 0
-            lines.append(f"  {t}: {data['count']} positions, EUR {data['value']:,.0f} ({pct:.1f}%), P&L EUR {data['pnl']:,.0f}")
+            by_type: dict[str, dict] = {}
+            for a in portfolio:
+                t = a.get("type", "unknown")
+                if t not in by_type:
+                    by_type[t] = {"count": 0, "outputMw": 0, "forecastMw": 0, "capacityMw": 0}
+                by_type[t]["count"] += 1
+                by_type[t]["outputMw"] += a.get("currentOutputMw", 0)
+                by_type[t]["forecastMw"] += a.get("forecastOutputMw", 0)
+                by_type[t]["capacityMw"] += a.get("capacityMw", 0)
 
-        losers = [p for p in portfolio if p.unrealizedPnl < -500]
-        if losers:
+            lines.append("## Fleet Status")
+            lines.append(f"Total assets: {len(portfolio)}")
+            lines.append(f"Total output: {total_output:,.0f} MW (forecast: {total_forecast:,.0f} MW)")
+            lines.append(f"Total capacity: {total_capacity:,.0f} MW (utilisation: {total_output / total_capacity * 100:.0f}%)" if total_capacity else "")
             lines.append("")
-            lines.append("Risk flags (positions with > EUR 500 unrealized loss):")
-            for p in losers:
-                lines.append(f"  - {p.instrument}: EUR {p.unrealizedPnl:,.0f}")
+            lines.append("By asset type:")
+            for t, data in sorted(by_type.items(), key=lambda x: -x[1]["outputMw"]):
+                variance = data["outputMw"] - data["forecastMw"]
+                lines.append(f"  {t}: {data['count']} assets, {data['outputMw']:.0f} MW output "
+                             f"(forecast {data['forecastMw']:.0f} MW, variance {variance:+.0f} MW, "
+                             f"capacity {data['capacityMw']:.0f} MW)")
 
-        return "\n".join(lines)
+        # Context objects (prices, portfolio state, weather events)
+        for ctx in generators:
+            ctx_type = ctx.get("context", "")
+            if ctx_type == "live_market_prices":
+                lines.append("")
+                lines.append("## Live Market Prices")
+                for key in ("dayAhead", "intraday", "flexibility"):
+                    val = ctx.get(key)
+                    if val is not None:
+                        lines.append(f"  {key}: EUR {val:.2f}/MWh")
+                best = ctx.get("bestChannel", "")
+                if best:
+                    lines.append(f"  Best channel (highest price): {best}")
+
+            elif ctx_type == "portfolio_state":
+                lines.append("")
+                lines.append("## Portfolio Position")
+                committed = ctx.get("committedMwh", 0)
+                forecast = ctx.get("forecastMwh", 0)
+                gap = ctx.get("netGapMwh", 0)
+                gap_type = ctx.get("gapType", "balanced")
+                realised = ctx.get("realisedPnlEur", 0)
+                unrealised = ctx.get("unrealisedPnlEur", 0)
+                target = ctx.get("dailyTargetEur", 0)
+                lines.append(f"  Committed: {committed:,.0f} MWh | Forecast: {forecast:,.0f} MWh")
+                lines.append(f"  Net gap: {gap:+,.0f} MWh ({gap_type})")
+                lines.append(f"  Realised P&L: EUR {realised:,.0f} (target EUR {target:,.0f}, {realised / target * 100:.0f}%)" if target else f"  Realised P&L: EUR {realised:,.0f}")
+                lines.append(f"  Unrealised P&L: EUR {unrealised:,.0f}")
+
+                allocs = ctx.get("allocationsByType", {})
+                if allocs:
+                    lines.append("  Allocations by type:")
+                    for atype, alloc in allocs.items():
+                        target_mwh = alloc.get("targetMwh", 0) if isinstance(alloc, dict) else 0
+                        channel = alloc.get("marketChannel", "—") if isinstance(alloc, dict) else "—"
+                        if target_mwh > 0:
+                            lines.append(f"    {atype}: {target_mwh:.0f} MWh on {channel}")
+
+            elif ctx_type == "weather_and_performance_events":
+                events = ctx.get("events", [])
+                if events:
+                    lines.append("")
+                    lines.append("## Recent Weather & Performance Events")
+                    for ev in events[:8]:
+                        etype = ev.get("eventType", "")
+                        payload = ev.get("payload", {})
+                        if etype == "WindForecastUpdated":
+                            lines.append(f"  Wind: {payload.get('region', '?')} forecast {payload.get('forecastDeltaPct', 0):+.1f}% (wind {payload.get('windSpeedMs', 0)} m/s)")
+                        elif etype == "SolarIrradianceForecastUpdated":
+                            lines.append(f"  Solar: {payload.get('region', '?')} forecast {payload.get('forecastDeltaPct', 0):+.1f}% (irradiance {payload.get('irradianceWm2', 0)} W/m²)")
+                        elif etype == "WeatherAlertIssued":
+                            lines.append(f"  ALERT: {payload.get('region', '?')} — {payload.get('severity', '?')} ({payload.get('description', '')})")
+                        elif etype == "PerformanceVarianceDetected":
+                            lines.append(f"  Variance: {payload.get('assetName', '?')} ({payload.get('assetType', '?')}) {payload.get('variancePct', 0):+.1f}%")
+
+        return "\n".join(lines) if lines else "No portfolio data available."
 
     @tool
     def get_generator_status() -> str:
-        """Get current status of power generators/substations in the network. Returns capacity, fuel mix, and production summary."""
-        if not generators:
-            return "No generator data available. Start the telemetry generator to see live data."
+        """Get current fleet asset status: per-asset output, forecast, variance, and utilisation for all renewable energy assets."""
+        if not portfolio:
+            return "No fleet data available. Start the simulation to see live asset data."
 
-        total_capacity = sum(g.capacity_mw for g in generators)
-        online = [g for g in generators if g.status == "online"]
-        total_online = sum(g.capacity_mw for g in online)
-
-        by_fuel: dict[str, float] = {}
-        for g in generators:
-            by_fuel[g.fuel] = by_fuel.get(g.fuel, 0) + g.capacity_mw
+        online = [a for a in portfolio if a.get("status") == "online"]
+        total_capacity = sum(a.get("capacityMw", 0) for a in portfolio)
+        total_output = sum(a.get("currentOutputMw", 0) for a in online)
 
         lines = [
-            f"Total generators: {len(generators)} ({len(online)} online)",
+            f"Fleet assets: {len(portfolio)} ({len(online)} online)",
             f"Total capacity: {total_capacity:,.0f} MW",
-            f"Online capacity: {total_online:,.0f} MW",
+            f"Current output: {total_output:,.0f} MW",
             "",
-            "Fuel mix:",
+            "Per-asset breakdown:",
         ]
-        for fuel, mw in sorted(by_fuel.items(), key=lambda x: -x[1]):
-            pct = (mw / total_capacity * 100) if total_capacity else 0
-            lines.append(f"  {fuel}: {mw:,.0f} MW ({pct:.1f}%)")
-
-        lines.append("")
-        lines.append("Top producers:")
-        for g in sorted(generators, key=lambda x: -x.capacity_mw)[:5]:
-            lines.append(f"  - {g.name} ({g.region}): {g.capacity_mw} MW [{g.fuel}] - {g.status}")
+        for a in sorted(portfolio, key=lambda x: -x.get("currentOutputMw", 0)):
+            name = a.get("name", a.get("id", "?"))
+            region = a.get("region", "?")
+            output = a.get("currentOutputMw", 0)
+            forecast = a.get("forecastOutputMw", 0)
+            capacity = a.get("capacityMw", 0)
+            status = a.get("status", "unknown")
+            util = a.get("utilizationPct", 0)
+            lines.append(f"  - {name} ({region}): {output:.0f} MW output, "
+                         f"forecast {forecast:.0f} MW, capacity {capacity:.0f} MW, "
+                         f"util {util:.0f}%, status: {status}")
 
         return "\n".join(lines)
 
-    @tool
-    def get_energy_prices() -> str:
-        """Fetch live energy commodity prices: Brent crude, WTI crude, TTF natural gas, and Henry Hub gas. Returns current spot prices with recent change data."""
-        import httpx
-        lines = []
-
-        # EIA petroleum spot prices (free, no key required for public endpoints)
-        eia_key = os.getenv("EIA_API_KEY", "")
-        try:
-            params: dict = {
-                "frequency": "daily",
-                "data[0]": "value",
-                "sort[0][column]": "period",
-                "sort[0][direction]": "desc",
-                "length": 2,
-            }
-            if eia_key:
-                params["api_key"] = eia_key
-            resp = httpx.get(
-                "https://api.eia.gov/v2/petroleum/pri/spt/data/",
-                params=params,
-                timeout=8,
-            )
-            if resp.status_code == 200:
-                data = resp.json().get("response", {}).get("data", [])
-                seen: set[str] = set()
-                for row in data:
-                    name = row.get("series-description", row.get("product-name", ""))
-                    val = row.get("value")
-                    period = row.get("period", "")
-                    key = row.get("product", name)
-                    if key not in seen and val is not None:
-                        seen.add(key)
-                        lines.append(f"- {name}: ${val:.2f}/bbl ({period})")
-        except Exception as e:
-            lines.append(f"EIA API unavailable: {e}")
-
-        # Fallback: web search for current prices if EIA returned nothing
-        if not lines:
-            try:
-                from ddgs import DDGS
-                with DDGS() as ddgs:
-                    results = list(ddgs.text("Brent crude WTI TTF natural gas spot price today USD", max_results=3))
-                for r in results:
-                    lines.append(f"- {r.get('title', '')}: {r.get('body', '')[:200]}")
-            except Exception as e:
-                lines.append(f"Price data unavailable: {e}")
-
-        return "\n".join(lines) if lines else "Energy price data currently unavailable."
 
     @tool
     def get_energy_news(topic: str = "European energy markets") -> str:
@@ -424,7 +437,7 @@ def _build_agent(coll, portfolio: list[PositionInput], generators: list[Generato
         except Exception as e:
             return f"Web search unavailable: {e}"
 
-    domain_tools = [search_policies, search_market_intel, analyze_portfolio, get_generator_status, get_energy_prices, get_energy_news, web_search]
+    domain_tools = [search_policies, search_market_intel, analyze_portfolio, get_generator_status, get_energy_news, web_search]
     all_tools = domain_tools + (mcp_tools or [])
 
     mcp_section = ""
@@ -436,21 +449,27 @@ Use the specialized search tools (search_policies, search_market_intel) for sema
 Use MCP MongoDB tools (find, aggregate) when you need to run custom queries, explore data schema, or access collections beyond the document store.
 Key collections: documents (market intel + IEA policies), telemetry_events (generator time-series metrics), events (CQRS event store)."""
 
-    system_prompt = f"""You are EnerLeafy, an L3 autonomous AI energy market advisor (human-in-the-loop) at a European energy trading firm. You have access to the trader's live portfolio, power generator telemetry, IEA/EU energy policies, vessel tracking data, and market research in MongoDB Atlas.
+    system_prompt = f"""You are EnerLeafy, an AI energy market advisor at a European renewable energy IPP (Independent Power Producer). You have access to:
+- The trader's live fleet of 8 European energy assets (wind, solar, hydro, gas, battery, biomass) with real-time output, forecasts, and variance data
+- Live market prices across Day-Ahead, Intraday, and Flexibility channels
+- Portfolio position: committed vs forecast MWh, gap type, realised/unrealised P&L
+- Recent weather forecasts and performance variance events affecting the fleet
+- IEA/EU energy policy documents in MongoDB Atlas
+- Web search for real-time market data
 
 Your conversation history is persisted in MongoDB — you remember previous messages in this session.
 
 ## TOOL USAGE (MANDATORY)
 Call tools in your FIRST action ONLY. Call ALL needed tools SIMULTANEOUSLY in one batch. NEVER repeat a tool call.
 REQUIRED for every question (call all at once in first action):
-1. analyze_portfolio — current positions, P&L, and risk
+1. analyze_portfolio — fleet output by type, live market prices, position gap, P&L, weather events
 2. search_policies — relevant EU/IEA regulations
-3. get_energy_prices — live Brent/WTI/TTF/Henry Hub spot prices from EIA
-4. get_energy_news — latest energy market headlines (topic: the user's question)
-Optional (only if needed):
-5. web_search — ONE comprehensive query for additional real-time context not covered by prices/news
-6. get_generator_status — only if the question is about power supply or generation capacity
-7. search_market_intel — only if specific research, ESG, or maritime data is needed
+Optional (only if the user asks about current events or breaking news):
+3. get_energy_news — latest energy market headlines
+4. web_search — ONE comprehensive query for additional real-time context
+Only if specifically needed:
+5. get_generator_status — per-asset breakdown of fleet output, forecast, variance
+6. search_market_intel — only if specific research or ESG data is needed
 After receiving ALL tool results, write your complete final answer. Do NOT call more tools after receiving results unless critically needed for a specific fact you don't have.
 
 ## INLINE RICH ELEMENTS
@@ -488,7 +507,7 @@ Present 2-4 specific actions the trader should take. For each action:
 - **Priority**: High/Medium/Low
 
 ### Pending Decisions (Human Approval Required)
-As an L3 agent, you MUST present decisions that require human authorization:
+Present decisions that require human authorization:
 - Positions to liquidate or significantly adjust — state exact instruments, quantities, and target prices
 - Regulatory filings or reclamations to submit (e.g., REMIT reporting to ACER, complaint to national regulator)
 - Hedging strategies that change portfolio risk profile
@@ -502,7 +521,7 @@ Format each decision as: `**DECISION N** — [question]? → **YES** / NO`
 - Use bullet points, not paragraphs, for lists.
 - Quantify everything: EUR amounts, percentages, MW, bbl.
 - Reference specific EU regulations by name and article when relevant.
-- When analyzing vessel cargo impact, connect it to specific portfolio positions.
+- When analyzing fleet output, connect weather impacts to specific asset types and their revenue contribution.
 - Do NOT add a separate "Sources" section — use @source_ref inline instead.
 
 You use hybrid search: RAG via MongoDB Atlas Vector Search (VoyageAI voyage-finance-2) + DuckDuckGo web search for real-time data.
@@ -558,7 +577,7 @@ async def advisor_chat(req: AdvisorRequest, client=Depends(get_db)):
 
             # With checkpointer + thread_id, only send the new message.
             # The checkpointer automatically restores previous conversation state.
-            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 8}
+            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 4}
             messages = [HumanMessage(content=req.message)]
 
             result = await agent.ainvoke({"messages": messages}, config)
@@ -619,7 +638,7 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
 
             from langchain_core.messages import HumanMessage
 
-            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 8}
+            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 4}
             messages = [HumanMessage(content=req.message)]
             tool_calls_used: list[str] = []
             full_answer = ""
@@ -668,13 +687,14 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                 if full_answer and req.message:
                     try:
                         from datetime import datetime, timezone
-                        db["advisor_interactions"].insert_one({
+                        doc = {
                             "timestamp": datetime.now(timezone.utc),
                             "question": req.message[:600],
                             "answer": full_answer[:1500],
-                            "tool_calls": list(dict.fromkeys(tool_calls_used)),  # deduplicated
+                            "tool_calls": list(dict.fromkeys(tool_calls_used)),
                             "session_id": session_id,
-                        })
+                        }
+                        await asyncio.to_thread(db["advisor_interactions"].insert_one, doc)
                     except Exception as save_err:
                         logger.warning("Failed to save advisor interaction: %s", save_err)
 

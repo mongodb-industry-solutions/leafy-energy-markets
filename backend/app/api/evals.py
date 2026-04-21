@@ -1,5 +1,6 @@
 """RAGAS evaluation API — trigger runs and fetch stored results."""
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -43,6 +44,49 @@ async def _execute_eval(db) -> None:
         _run_status["completed_at"] = datetime.now(timezone.utc).isoformat()
 
 
+def _fetch_results_sync(db, limit: int) -> list:
+    """Blocking MongoDB query — must be run in a thread."""
+    runs = list(
+        db["rag_evals"]
+        .find({"status": "completed"}, {"questions": 0})
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+    for r in runs:
+        r["_id"] = str(r["_id"])
+        ts = r.get("timestamp")
+        if hasattr(ts, "isoformat"):
+            r["timestamp"] = ts.isoformat()
+    return runs
+
+
+def _fetch_latest_sync(db) -> dict | None:
+    """Blocking MongoDB query — must be run in a thread."""
+    doc = db["rag_evals"].find_one({"status": "completed"}, sort=[("timestamp", -1)])
+    if not doc:
+        return None
+    doc["_id"] = str(doc["_id"])
+    ts = doc.get("timestamp")
+    if hasattr(ts, "isoformat"):
+        doc["timestamp"] = ts.isoformat()
+    return doc
+
+
+def _fetch_interactions_sync(db, limit: int) -> list:
+    """Blocking MongoDB query — must be run in a thread."""
+    docs = list(
+        db["advisor_interactions"]
+        .find({}, {"question": 1, "tool_calls": 1, "timestamp": 1, "_id": 0})
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+    for d in docs:
+        ts = d.get("timestamp")
+        if hasattr(ts, "isoformat"):
+            d["timestamp"] = ts.isoformat()
+    return docs
+
+
 @router.post("/evals/run")
 async def trigger_run(background_tasks: BackgroundTasks, client=Depends(get_db)):
     """Trigger a RAGAS evaluation run in the background."""
@@ -62,7 +106,7 @@ async def trigger_run(background_tasks: BackgroundTasks, client=Depends(get_db))
 
 @router.get("/evals/status")
 async def get_status():
-    """Get the current evaluation run status."""
+    """Get the current evaluation run status — no MongoDB needed."""
     return _run_status
 
 
@@ -70,46 +114,33 @@ async def get_status():
 async def get_results(limit: int = 10, client=Depends(get_db)):
     """Fetch recent completed evaluation runs (without per-question details)."""
     db = client[DB_NAME]
-    runs = list(
-        db["rag_evals"]
-        .find({"status": "completed"}, {"questions": 0})
-        .sort("timestamp", -1)
-        .limit(limit)
-    )
-    for r in runs:
-        r["_id"] = str(r["_id"])
-        ts = r.get("timestamp")
-        if hasattr(ts, "isoformat"):
-            r["timestamp"] = ts.isoformat()
-    return runs
+    try:
+        runs = await asyncio.to_thread(_fetch_results_sync, db, limit)
+        return runs
+    except Exception as exc:
+        logger.warning("evals/results: MongoDB unavailable: %s", exc)
+        return []
 
 
 @router.get("/evals/results/latest")
 async def get_latest(client=Depends(get_db)):
     """Fetch the most recent completed evaluation (with per-question breakdown)."""
     db = client[DB_NAME]
-    doc = db["rag_evals"].find_one({"status": "completed"}, sort=[("timestamp", -1)])
-    if not doc:
+    try:
+        doc = await asyncio.to_thread(_fetch_latest_sync, db)
+        return doc
+    except Exception as exc:
+        logger.warning("evals/results/latest: MongoDB unavailable: %s", exc)
         return None
-    doc["_id"] = str(doc["_id"])
-    ts = doc.get("timestamp")
-    if hasattr(ts, "isoformat"):
-        doc["timestamp"] = ts.isoformat()
-    return doc
 
 
 @router.get("/evals/interactions")
 async def get_interactions(limit: int = 50, client=Depends(get_db)):
     """Return recent advisor interactions for query term analysis / bubble chart."""
     db = client[DB_NAME]
-    docs = list(
-        db["advisor_interactions"]
-        .find({}, {"question": 1, "tool_calls": 1, "timestamp": 1, "_id": 0})
-        .sort("timestamp", -1)
-        .limit(limit)
-    )
-    for d in docs:
-        ts = d.get("timestamp")
-        if hasattr(ts, "isoformat"):
-            d["timestamp"] = ts.isoformat()
-    return docs
+    try:
+        docs = await asyncio.to_thread(_fetch_interactions_sync, db, limit)
+        return docs
+    except Exception as exc:
+        logger.warning("evals/interactions: MongoDB unavailable: %s", exc)
+        return []

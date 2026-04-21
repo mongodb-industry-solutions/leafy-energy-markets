@@ -4,94 +4,163 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { css, keyframes } from '@emotion/css';
 
-const blink = keyframes`
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+// ─── Keyframes ────────────────────────────────
+
+const fadeUp = keyframes`
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
+const fadeIn = keyframes`
+  from { opacity: 0; }
+  to   { opacity: 1; }
 `;
 
 const scroll = keyframes`
-  0% { transform: translateX(0); }
+  0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 `;
 
-const flicker = keyframes`
-  0%, 100% { opacity: 1; }
-  92% { opacity: 1; }
-  93% { opacity: 0.4; }
-  94% { opacity: 1; }
-  96% { opacity: 0.7; }
-  97% { opacity: 1; }
+const float = keyframes`
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
 `;
 
-const glow = keyframes`
-  0%, 100% { text-shadow: 0 0 30px rgba(0,237,100,0.7), 0 0 60px rgba(0,237,100,0.4), 0 0 120px rgba(0,237,100,0.2); }
-  50% { text-shadow: 0 0 50px rgba(0,237,100,1), 0 0 100px rgba(0,237,100,0.6), 0 0 160px rgba(0,237,100,0.3); }
+const gradientShift = keyframes`
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 `;
 
-const wobble = keyframes`
-  0%, 100% { transform: rotate(-2deg) scale(1); }
-  25% { transform: rotate(1deg) scale(1.02); }
-  50% { transform: rotate(-1deg) scale(1); }
-  75% { transform: rotate(2deg) scale(1.01); }
+const pulse = keyframes`
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.8; }
 `;
 
-const MONITOR_IMAGE = '/img/control-room-meme.jpg';
+// ─── Data ──────────────────────────────────────
 
 const TICKER_ITEMS = [
-  'DE BASE Q2 78.90 +1.2%',
-  'TTF GAS APR 34.80 -0.5%',
-  'EUA CARBON 72.10 +2.1%',
-  'FR PEAK M03 91.30 -1.8%',
-  'NL WIND PPA 54.30 +0.8%',
-  'UK BASE Q3 82.70 -1.3%',
-  'ES SOLAR 46.80 +1.6%',
-  'NO HYDRO 40.50 +0.4%',
+  { label: 'DE BASE Q2', price: '78.90', delta: '+1.2%', up: true },
+  { label: 'TTF GAS APR', price: '34.80', delta: '-0.5%', up: false },
+  { label: 'EUA CARBON', price: '72.10', delta: '+2.1%', up: true },
+  { label: 'FR PEAK M03', price: '91.30', delta: '-1.8%', up: false },
+  { label: 'NL WIND PPA', price: '54.30', delta: '+0.8%', up: true },
+  { label: 'UK BASE Q3', price: '82.70', delta: '-1.3%', up: false },
+  { label: 'ES SOLAR', price: '46.80', delta: '+1.6%', up: true },
+  { label: 'NO HYDRO', price: '40.50', delta: '+0.4%', up: true },
 ];
+
+const FEATURES = [
+  {
+    icon: '🌬️',
+    accent: '#4da6ff',
+    title: 'Wind & Solar Fleet',
+    desc: '8 European renewable assets streaming live telemetry. From Hollandse Kust to Algarrobico — real-time output, variance, and forecasts.',
+  },
+  {
+    icon: '📊',
+    accent: '#00ED64',
+    title: 'Position & Trading',
+    desc: 'Forecast vs committed gap tracking across Day-Ahead, Intraday, and Flexibility markets. One-click trade execution.',
+  },
+  {
+    icon: '🧠',
+    accent: '#cc99ff',
+    title: 'AI Advisor',
+    desc: 'LangChain ReAct agent powered by Claude — portfolio analysis, EU policy search, and market intelligence on demand.',
+  },
+  {
+    icon: '🔗',
+    accent: '#66cccc',
+    title: 'Event Sourcing',
+    desc: 'Append-only event store on MongoDB Atlas. CQRS read models via Change Streams. Full audit trail for EU REMIT compliance.',
+  },
+];
+
+const ENERGY_SOURCES = [
+  { icon: '🌬️', label: 'Wind', color: '#4da6ff' },
+  { icon: '☀️', label: 'Solar', color: '#ffcc44' },
+  { icon: '💧', label: 'Hydro', color: '#66cccc' },
+  { icon: '⚡', label: 'Battery', color: '#cc99ff' },
+  { icon: '🌿', label: 'Biomass', color: '#88ddaa' },
+];
+
+// ─── Component ─────────────────────────────────
 
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const tickerText = TICKER_ITEMS.join('   ///   ');
+  const tickerHtml = TICKER_ITEMS.map(
+    (t) => `<span style="color:#667">${t.label}</span>&nbsp;<span style="color:#e0e4e8;font-weight:700">${t.price}</span>&nbsp;<span style="color:${t.up ? '#00ED64' : '#FF6961'};font-weight:600">${t.delta}</span>`
+  ).join('<span style="color:#223;margin:0 20px">&middot;</span>');
 
   return (
     <div
       className={css`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700;800&display=swap');
         min-height: 100vh;
-        background: #000;
-        color: #00ED64;
-        font-family: 'Courier New', 'Source Code Pro', monospace;
+        background: #050a08;
+        color: #e0e4e8;
+        font-family: 'Inter', -apple-system, sans-serif;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
-        animation: ${flicker} 8s linear infinite;
+        overflow-x: hidden;
+        position: relative;
       `}
     >
-      {/* Scrolling ticker */}
+      {/* Organic gradient background */}
+      <div
+        className={css`
+          position: fixed;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+          background:
+            radial-gradient(ellipse 80% 60% at 20% 10%, rgba(77, 166, 255, 0.06) 0%, transparent 60%),
+            radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0, 237, 100, 0.06) 0%, transparent 60%),
+            radial-gradient(ellipse 70% 50% at 50% 80%, rgba(204, 153, 255, 0.04) 0%, transparent 60%),
+            radial-gradient(ellipse 50% 40% at 70% 60%, rgba(255, 204, 68, 0.03) 0%, transparent 60%);
+        `}
+      />
+
+      {/* Subtle dot grid */}
+      <div
+        className={css`
+          position: fixed;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+          opacity: 0.3;
+          background-image: radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px);
+          background-size: 32px 32px;
+        `}
+      />
+
+      {/* Ticker bar */}
       <div
         className={css`
           width: 100%;
           overflow: hidden;
-          border-bottom: 3px solid #00ED64;
-          padding: 12px 0;
-          background: #000;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          padding: 10px 0;
+          background: rgba(0, 0, 0, 0.5);
+          backdrop-filter: blur(12px);
           flex-shrink: 0;
+          z-index: 2;
         `}
       >
         <div
           className={css`
             display: flex;
             white-space: nowrap;
-            animation: ${scroll} 30s linear infinite;
-            font-size: 18px;
-            font-weight: 700;
-            letter-spacing: 3px;
-            color: #00ED64;
-            opacity: 0.8;
+            animation: ${scroll} 45s linear infinite;
+            font-size: 13px;
+            font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+            letter-spacing: 0.5px;
           `}
-        >
-          <span>{tickerText}   ///   {tickerText}   ///   </span>
-        </div>
+          dangerouslySetInnerHTML={{ __html: tickerHtml + tickerHtml }}
+        />
       </div>
 
       {/* Main content */}
@@ -102,232 +171,287 @@ export default function Home() {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 16px 24px;
-          gap: 16px;
+          padding: 80px 24px 60px;
+          gap: 56px;
+          z-index: 1;
+          position: relative;
         `}
       >
-        {/* WordArt Logo — BIG and ridiculous */}
+        {/* Hero */}
         <div
           className={css`
             text-align: center;
+            max-width: 800px;
             opacity: ${mounted ? 1 : 0};
-            transition: opacity 0.5s ease;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            animation: ${wobble} 6s ease-in-out infinite;
+            animation: ${mounted ? fadeUp : 'none'} 1s cubic-bezier(0.22, 1, 0.36, 1);
           `}
         >
+          {/* Energy source icons floating */}
+          <div
+            className={css`
+              display: flex;
+              justify-content: center;
+              gap: 16px;
+              margin-bottom: 32px;
+            `}
+          >
+            {ENERGY_SOURCES.map((s, i) => (
+              <div
+                key={s.label}
+                className={css`
+                  width: 44px;
+                  height: 44px;
+                  border-radius: 12px;
+                  background: ${s.color}15;
+                  border: 1px solid ${s.color}30;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: 20px;
+                  animation: ${float} ${3 + i * 0.4}s ease-in-out infinite;
+                  animation-delay: ${i * 0.2}s;
+                `}
+                title={s.label}
+              >
+                {s.icon}
+              </div>
+            ))}
+          </div>
+
+          <div
+            className={css`
+              font-size: 12px;
+              font-weight: 700;
+              letter-spacing: 4px;
+              text-transform: uppercase;
+              color: #667;
+              margin-bottom: 20px;
+            `}
+          >
+            European Renewable Energy
+          </div>
+
+          {/* Title — editorial serif like Tobias */}
           <h1
             className={css`
-              font-size: clamp(60px, 14vw, 160px);
-              font-weight: 900;
-              letter-spacing: 6px;
-              line-height: 0.9;
-              margin: 0;
-              color: transparent;
-              background: linear-gradient(
-                180deg,
-                #AAFF00 0%,
-                #00FF6A 20%,
-                #00ED64 40%,
-                #00C853 60%,
-                #FFD700 80%,
-                #00FF6A 100%
-              );
-              background-size: 100% 200%;
-              -webkit-background-clip: text;
-              background-clip: text;
-              -webkit-text-stroke: 2px rgba(0, 237, 100, 0.4);
-              filter: drop-shadow(0 4px 8px rgba(0, 237, 100, 0.6)) drop-shadow(0 0 40px rgba(0, 237, 100, 0.3));
-              animation: ${glow} 2s ease-in-out infinite;
-              font-family: 'Impact', 'Arial Black', sans-serif;
-              text-transform: uppercase;
-              transform: skewY(-2deg);
+              font-family: 'DM Serif Display', Georgia, 'Times New Roman', serif;
+              font-size: clamp(52px, 9vw, 108px);
+              font-weight: 400;
+              letter-spacing: -1px;
+              line-height: 1.2;
+              margin: 0 0 4px;
+              color: #fff;
             `}
           >
             Leafy
           </h1>
           <h1
             className={css`
-              font-size: clamp(50px, 11vw, 130px);
-              font-weight: 900;
-              letter-spacing: 8px;
-              line-height: 0.9;
-              margin: 0;
-              color: transparent;
-              background: linear-gradient(
-                180deg,
-                #00FF6A 0%,
-                #00ED64 30%,
-                #00C853 50%,
-                #FFD700 70%,
-                #00FF6A 100%
-              );
-              background-size: 100% 200%;
-              -webkit-background-clip: text;
-              background-clip: text;
-              -webkit-text-stroke: 2px rgba(0, 237, 100, 0.3);
-              filter: drop-shadow(0 4px 8px rgba(0, 237, 100, 0.5)) drop-shadow(0 0 30px rgba(0, 237, 100, 0.25));
-              animation: ${glow} 2s ease-in-out infinite;
-              animation-delay: 0.3s;
-              font-family: 'Impact', 'Arial Black', sans-serif;
-              text-transform: uppercase;
+              font-family: 'DM Serif Display', Georgia, 'Times New Roman', serif;
+              font-size: clamp(52px, 9vw, 108px);
+              font-weight: 400;
               font-style: italic;
-              transform: skewY(-2deg);
-            `}
-          >
-            Energy
-          </h1>
-          <h1
-            className={css`
-              font-size: clamp(40px, 9vw, 110px);
-              font-weight: 900;
-              letter-spacing: 14px;
-              line-height: 0.9;
-              margin: 0;
-              color: transparent;
+              letter-spacing: -1px;
+              line-height: 1.2;
+              margin: 0 0 28px;
+              padding-bottom: 8px;
               background: linear-gradient(
-                180deg,
-                #FFD700 0%,
-                #00FF6A 30%,
-                #00ED64 50%,
-                #00C853 70%,
-                #AAFF00 100%
+                135deg,
+                #4da6ff 0%,
+                #00ED64 20%,
+                #88ddaa 40%,
+                #ffcc44 60%,
+                #cc99ff 80%,
+                #4da6ff 100%
               );
-              background-size: 100% 200%;
+              background-size: 300% 300%;
               -webkit-background-clip: text;
               background-clip: text;
-              -webkit-text-stroke: 2px rgba(0, 237, 100, 0.2);
-              filter: drop-shadow(0 4px 8px rgba(0, 237, 100, 0.4)) drop-shadow(0 0 25px rgba(0, 237, 100, 0.2));
-              animation: ${glow} 2s ease-in-out infinite;
-              animation-delay: 0.6s;
-              font-family: 'Impact', 'Arial Black', sans-serif;
-              text-transform: uppercase;
-              transform: skewY(-2deg);
+              color: transparent;
+              animation: ${gradientShift} 6s ease infinite;
             `}
           >
-            Markets
+            Energy Markets
           </h1>
-          <div
+
+          <p
             className={css`
-              font-size: 13px;
-              letter-spacing: 6px;
-              text-transform: uppercase;
-              color: #00ED64;
-              opacity: 0.5;
-              margin-top: 10px;
+              font-size: 19px;
+              line-height: 1.7;
+              color: #8892a2;
+              max-width: 540px;
+              margin: 0 auto 36px;
             `}
           >
-            MONGODB ATLAS &middot; EVENT SOURCING &middot; CQRS
+            Real-time portfolio management for European renewable energy.
+            Event-sourced architecture. AI-augmented trading intelligence.
+          </p>
+
+          {/* CTAs */}
+          <div className={css`display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;`}>
+            <Link href="/dashboard" className={css`text-decoration: none;`}>
+              <div
+                className={css`
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 10px;
+                  padding: 16px 44px;
+                  border-radius: 60px;
+                  background: linear-gradient(135deg, #00ED64, #00A651);
+                  color: #000;
+                  font-size: 15px;
+                  font-weight: 700;
+                  cursor: pointer;
+                  transition: all 0.25s ease;
+                  box-shadow: 0 4px 20px rgba(0, 237, 100, 0.2);
+                  &:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 8px 32px rgba(0, 237, 100, 0.3);
+                  }
+                `}
+              >
+                Open Dashboard
+                <span className={css`font-size: 16px;`}>→</span>
+              </div>
+            </Link>
+
+            <Link href="/leafy" className={css`text-decoration: none;`}>
+              <div
+                className={css`
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 8px;
+                  padding: 16px 36px;
+                  border-radius: 60px;
+                  border: 1px solid rgba(255, 255, 255, 0.12);
+                  background: rgba(255, 255, 255, 0.03);
+                  color: #c8ccd4;
+                  font-size: 15px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: all 0.25s ease;
+                  backdrop-filter: blur(8px);
+                  &:hover {
+                    background: rgba(255, 255, 255, 0.07);
+                    border-color: rgba(255, 255, 255, 0.2);
+                    color: #fff;
+                  }
+                `}
+              >
+                Talk to AI Advisor
+              </div>
+            </Link>
           </div>
         </div>
 
-        {/* Monitor the situation — BIG */}
+        {/* Feature cards */}
         <div
           className={css`
-            border: 4px solid #00ED64;
-            padding: 6px;
-            max-width: 800px;
-            width: 90%;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            max-width: 920px;
+            width: 100%;
             opacity: ${mounted ? 1 : 0};
-            transition: opacity 0.8s ease 0.3s;
-            box-shadow: 0 0 30px rgba(0, 237, 100, 0.2), inset 0 0 20px rgba(0, 237, 100, 0.05);
+            animation: ${mounted ? fadeUp : 'none'} 1s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
           `}
         >
-          <img
-            src={MONITOR_IMAGE}
-            alt="We'll monitor the situation"
-            className={css`
-              width: 100%;
-              height: auto;
-              display: block;
-              filter: brightness(0.95) saturate(0.8);
-            `}
-          />
-          <div
-            className={css`
-              text-align: center;
-              font-size: clamp(16px, 3vw, 28px);
-              letter-spacing: 6px;
-              padding: 14px 0 10px;
-              color: #00ED64;
-              font-weight: 900;
-              text-transform: uppercase;
-              text-shadow: 0 0 20px rgba(0, 237, 100, 0.5);
-            `}
-          >
-            &gt; We&apos;ll monitor the situation
-          </div>
-        </div>
-
-        {/* Enter button */}
-        <Link href="/dashboard" className={css`text-decoration: none;`}>
-          <div
-            className={css`
-              border: 4px solid #00ED64;
-              padding: 18px 80px;
-              font-size: 24px;
-              font-weight: 900;
-              letter-spacing: 10px;
-              text-transform: uppercase;
-              color: #00ED64;
-              cursor: pointer;
-              position: relative;
-              background: #000;
-              box-shadow: 0 0 20px rgba(0, 237, 100, 0.15);
-              &:hover {
-                background: #00ED64;
-                color: #000;
-                box-shadow: 0 0 40px rgba(0, 237, 100, 0.4);
-              }
-              &:active {
-                transform: translate(3px, 3px);
-              }
-            `}
-          >
-            ENTER
-            <span
+          {FEATURES.map((f, i) => (
+            <div
+              key={i}
               className={css`
-                display: inline-block;
-                width: 14px;
-                margin-left: 8px;
-                animation: ${blink} 1s step-end infinite;
+                background: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 16px;
+                padding: 24px 22px;
+                transition: all 0.25s ease;
+                &:hover {
+                  background: rgba(255, 255, 255, 0.04);
+                  border-color: ${f.accent}30;
+                  transform: translateY(-3px);
+                  box-shadow: 0 8px 30px ${f.accent}10;
+                }
               `}
             >
-              _
-            </span>
-          </div>
-        </Link>
+              <div
+                className={css`
+                  width: 40px;
+                  height: 40px;
+                  border-radius: 10px;
+                  background: ${f.accent}15;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: 20px;
+                  margin-bottom: 14px;
+                `}
+              >
+                {f.icon}
+              </div>
+              <div className={css`font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 8px;`}>{f.title}</div>
+              <div className={css`font-size: 13px; line-height: 1.65; color: #667;`}>{f.desc}</div>
+            </div>
+          ))}
+        </div>
 
-        {/* Footer */}
+        {/* Tech + branding bar */}
         <div
           className={css`
-            font-size: 11px;
-            letter-spacing: 2px;
-            color: #00ED64;
-            opacity: 0.4;
-            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            opacity: ${mounted ? 1 : 0};
+            animation: ${mounted ? fadeIn : 'none'} 1.2s ease 0.4s both;
           `}
         >
-          POWERED BY MONGODB ATLAS &middot; LEAFYGREEN UI &middot; NEXT.JS
+          <div className={css`font-size: 11px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: #445;`}>
+            Built with
+          </div>
+          <div className={css`display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 600px;`}>
+            {['MongoDB Atlas', 'Next.js 14', 'FastAPI', 'LangChain', 'Claude AI', 'LeafyGreen UI', 'VoyageAI'].map((t) => (
+              <span
+                key={t}
+                className={css`
+                  padding: 6px 16px;
+                  border-radius: 20px;
+                  font-size: 12px;
+                  font-weight: 600;
+                  color: #778;
+                  border: 1px solid rgba(255, 255, 255, 0.06);
+                  background: rgba(255, 255, 255, 0.02);
+                  transition: all 0.2s ease;
+                  &:hover { border-color: rgba(255,255,255,0.12); color: #aab; }
+                `}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Bottom border */}
+      {/* Footer */}
       <div
         className={css`
-          border-top: 3px solid #00ED64;
-          padding: 6px;
-          text-align: center;
-          font-size: 10px;
-          letter-spacing: 4px;
-          color: #00ED64;
-          opacity: 0.3;
+          border-top: 1px solid rgba(255, 255, 255, 0.04);
+          padding: 16px 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 20px;
+          font-size: 11px;
+          color: #334;
+          z-index: 1;
           flex-shrink: 0;
         `}
       >
-        {'>'} SYS.READY {'>'} ALL.MARKETS.ONLINE {'>'} LATENCY.OK
+        <span className={css`animation: ${pulse} 3s ease-in-out infinite; color: #00ED64; font-size: 8px;`}>●</span>
+        <span>All markets online</span>
+        <span className={css`color: #223;`}>·</span>
+        <span>MongoDB Atlas</span>
+        <span className={css`color: #223;`}>·</span>
+        <span>LeafyGreen UI</span>
       </div>
     </div>
   );

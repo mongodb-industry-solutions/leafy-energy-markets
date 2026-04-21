@@ -17,7 +17,7 @@ for _var in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"):
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import commands, queries, telemetry, search, advisor, audit, evals
+from app.api import commands, queries, telemetry, search, advisor, audit, evals, trading
 from app.infrastructure.db import get_client, close_client
 
 
@@ -47,6 +47,7 @@ app.include_router(search.router, prefix="/api")
 app.include_router(advisor.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(evals.router, prefix="/api")
+app.include_router(trading.router, prefix="/api")
 
 @app.get("/")
 def read_root():

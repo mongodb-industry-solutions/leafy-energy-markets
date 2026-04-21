@@ -1,17 +1,13 @@
 'use client';
 
-import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { css, keyframes } from '@emotion/css';
-import { SideNav, SideNavItem } from '@leafygreen-ui/side-nav';
+import { css } from '@emotion/css';
 import Icon from '@leafygreen-ui/icon';
 import Toggle from '@leafygreen-ui/toggle';
-import Button from '@leafygreen-ui/button';
 import { H3, Overline } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from './Providers';
-import { useGenerator } from '@/lib/generator-context';
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', glyph: 'Dashboard' as const },
@@ -22,16 +18,9 @@ const navItems = [
   { label: 'Evals', href: '/evals', glyph: 'Beaker' as const },
 ];
 
-const pulse = keyframes`
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-`;
-
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { darkMode, toggleDarkMode } = useDarkMode();
-  const gen = useGenerator();
-  const [genExpanded, setGenExpanded] = useState(false);
 
   const bg = darkMode ? palette.black : palette.white;
   const sideNavBg = darkMode ? '#112733' : palette.gray.light3;
@@ -157,122 +146,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-        </div>
-
-        {/* Generator Widget */}
-        <div
-          className={css`
-            padding: 12px 16px;
-            margin: 0 12px;
-            border: 1px solid ${borderColor};
-            border-radius: 8px;
-            background: ${darkMode ? 'rgba(0,237,100,0.04)' : 'rgba(0,124,52,0.04)'};
-          `}
-        >
-          <div
-            className={css`
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              cursor: pointer;
-            `}
-            onClick={() => setGenExpanded((p) => !p)}
-          >
-            <div className={css`display: flex; align-items: center; gap: 8px;`}>
-              {gen.isRunning && (
-                <div
-                  className={css`
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background: ${palette.green.base};
-                    animation: ${pulse} 1.5s ease-in-out infinite;
-                  `}
-                />
-              )}
-              <span
-                className={css`
-                  font-size: 12px;
-                  font-weight: 600;
-                  color: ${darkMode ? palette.gray.light1 : palette.gray.dark1};
-                `}
-              >
-                {gen.isRunning ? 'Generator Running' : 'Generator'}
-              </span>
-            </div>
-            {gen.isRunning && gen.latestMetrics && (
-              <span
-                className={css`
-                  font-size: 11px;
-                  font-weight: 700;
-                  color: ${palette.green.base};
-                  font-family: 'Source Code Pro', monospace;
-                `}
-              >
-                {gen.latestMetrics.actual_throughput.toLocaleString()}/s
-              </span>
-            )}
-            {!gen.isRunning && (
-              <Icon
-                glyph={genExpanded ? 'ChevronUp' : 'ChevronDown'}
-                size={14}
-                fill={darkMode ? palette.gray.light1 : palette.gray.dark1}
-              />
-            )}
-          </div>
-
-          {gen.isRunning ? (
-            <div className={css`margin-top: 8px; display: flex; gap: 8px;`}>
-              <Button
-                variant="danger"
-                size="xsmall"
-                darkMode={darkMode}
-                onClick={() => gen.stop()}
-                className={css`flex: 1;`}
-              >
-                Stop
-              </Button>
-              <Link href="/dashboard">
-                <Button
-                  variant="default"
-                  size="xsmall"
-                  darkMode={darkMode}
-                >
-                  Details
-                </Button>
-              </Link>
-            </div>
-          ) : genExpanded ? (
-            <div className={css`margin-top: 10px;`}>
-              <div className={css`margin-bottom: 8px;`}>
-                <div className={css`display: flex; justify-content: space-between; margin-bottom: 2px;`}>
-                  <span className={css`font-size: 11px; color: ${darkMode ? palette.gray.light1 : palette.gray.dark1};`}>Events/sec</span>
-                  <span className={css`font-size: 11px; color: ${palette.green.base}; font-weight: 600;`}>{gen.config.events_per_second.toLocaleString()}</span>
-                </div>
-                <input
-                  type="range"
-                  min={100}
-                  max={10000}
-                  step={100}
-                  value={gen.config.events_per_second}
-                  className={css`width: 100%; accent-color: ${palette.green.base};`}
-                  onChange={(e) => gen.setConfig({ ...gen.config, events_per_second: Number(e.target.value) })}
-                />
-              </div>
-              <Button
-                variant="primary"
-                size="xsmall"
-                darkMode={darkMode}
-                onClick={() => gen.start()}
-                className={css`width: 100%;`}
-              >
-                Start Generator
-              </Button>
-              <Link href="/dashboard" className={css`display: block; text-align: center; margin-top: 6px; font-size: 11px; color: ${palette.green.base}; text-decoration: none; &:hover { text-decoration: underline; }`}>
-                Full Dashboard →
-              </Link>
-            </div>
-          ) : null}
         </div>
 
         {/* Dark mode toggle */}

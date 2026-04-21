@@ -100,8 +100,10 @@ export type AdvisorStreamEvent =
 
 export async function* streamAdvisor(
   message: string,
-  portfolio: Position[] = [],
-  generators: AdvisorGeneratorInput[] = [],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  portfolio: any[] = [],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  generators: any[] = [],
   history: { role: string; content: string }[] = [],
   sessionId?: string,
 ): AsyncGenerator<AdvisorStreamEvent> {

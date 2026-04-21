@@ -20,8 +20,8 @@ import { useGenerator } from '@/lib/generator-context';
 import { positions as mockPositions } from '@/lib/mock-data';
 import type { ChatMessage, AgenticStep } from '@/lib/types';
 
-const VesselTrackingMap = dynamic(
-  () => import('@/components/leafy/VesselTrackingMap'),
+const FleetAssetMap = dynamic(
+  () => import('@/components/leafy/FleetAssetMap'),
   { ssr: false }
 );
 
@@ -59,26 +59,41 @@ function LeafyContent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [activeAgenticSteps, setActiveAgenticSteps] = useState<AgenticStep[] | null>(null);
-  const [stepsVisible, setStepsVisible] = useState(false);  // steps panel open/closed
   const [mapExpanded, setMapExpanded] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   const [reasoningText, setReasoningText] = useState('');
+  const [reasoningCollapsed, setReasoningCollapsed] = useState(false);
 
   // Typewriter: full received text lives in a ref; a 16ms interval drips it into the message
   const tokenAccumRef = useRef('');
+  const streamDoneRef = useRef(false); // set to true when SSE 'done' fires
 
   useEffect(() => {
     if (!streamingMsgId) {
       tokenAccumRef.current = '';
+      streamDoneRef.current = false;
       return;
     }
     const id = setInterval(() => {
       const target = tokenAccumRef.current;
       setMessages((prev) => {
         const msg = prev.find((m) => m.id === streamingMsgId);
-        if (!msg || msg.content.length >= target.length) return prev;
-        const next = target.slice(0, msg.content.length + 6); // ~6 chars per frame @ 60fps
+        if (!msg) return prev;
+        if (msg.content.length >= target.length) {
+          // Typewriter caught up — if stream is done, finalize
+          if (streamDoneRef.current) {
+            setTimeout(() => {
+              setStreamingMsgId(null);
+              setTimeout(() => setActiveAgenticSteps(null), 400);
+            }, 50);
+          }
+          return prev;
+        }
+        // Adaptive chunk: 10% of remaining (min 8 chars) — fast but visible
+        const remaining = target.length - msg.content.length;
+        const chunk = Math.max(8, Math.floor(remaining * 0.1));
+        const next = target.slice(0, msg.content.length + chunk);
         return prev.map((m) => (m.id === streamingMsgId ? { ...m, content: next } : m));
       });
     }, 16);
@@ -94,7 +109,6 @@ function LeafyContent() {
     setMessages([]);
     setServerSessionId(null);
     setActiveAgenticSteps(null);
-    setStepsVisible(false);
     setIsTyping(false);
     setStreamingMsgId(null);
   }, []);
@@ -110,14 +124,36 @@ function LeafyContent() {
     setIsTyping(true);
     setStreamingMsgId(null);
 
-    const currentPositions =
-      liveFeed.active && liveFeed.positions ? liveFeed.positions : mockPositions;
-    const generatorSummaries = gen.substations
-      .filter((s) => s.status === 'online')
-      .map((s) => ({
-        id: s.id, name: s.name, region: s.region,
-        fuel: s.fuel, capacity_mw: s.capacity_mw, status: s.status,
-      }));
+    // Fetch live trading state to provide fleet + prices + weather context
+    let tradingState: Record<string, unknown> | null = null;
+    try {
+      const tsRes = await fetch('/api/trading/state');
+      if (tsRes.ok) tradingState = await tsRes.json();
+    } catch { /* backend unavailable */ }
+
+    // Build fleet context from live assets
+    const fleetAssets = (tradingState?.assets as Record<string, unknown>[] | undefined)?.map((a: Record<string, unknown>) => ({
+      id: a.id, type: a.type, name: a.name, region: a.region,
+      capacityMw: a.capacityMw, currentOutputMw: a.currentOutputMw,
+      forecastOutputMw: a.forecastOutputMw, varianceMw: a.varianceMw,
+      utilizationPct: a.utilizationPct, status: a.status,
+    })) ?? [];
+
+    const prices = tradingState?.prices ?? {};
+    const portfolio = tradingState?.portfolio ?? {};
+    const recentEvents = ((tradingState?.recentEvents as Record<string, unknown>[] | undefined) ?? [])
+      .filter((e: Record<string, unknown>) =>
+        e.streamType === 'WeatherForecast' || e.eventType === 'PerformanceVarianceDetected'
+      )
+      .slice(0, 10);
+
+    const currentPositions = fleetAssets;
+    const generatorSummaries = [
+      { context: 'live_market_prices', ...prices as object },
+      { context: 'portfolio_state', ...portfolio as object },
+      { context: 'weather_and_performance_events', events: recentEvents },
+    ];
+
     const chatHistory = messages
       .slice(-6)
       .map((m) => ({ role: m.role, content: m.content }));
@@ -128,8 +164,8 @@ function LeafyContent() {
     const steps: AgenticStep[] = [];
     const toolStartTimes: Record<string, number> = {};
     setActiveAgenticSteps([]);
-    setStepsVisible(true);
     setReasoningText('');
+    setReasoningCollapsed(false);
 
     try {
       for await (const event of streamAdvisor(
@@ -188,21 +224,21 @@ function LeafyContent() {
           if (event.session_id && !serverSessionId) {
             setServerSessionId(event.session_id);
           }
-          // Mark all running steps as completed
+          // Mark all running steps as completed, then collapse reasoning
           const finalSteps = steps.map((s) =>
             s.status === 'running' ? { ...s, status: 'completed' as const } : s
           );
           setActiveAgenticSteps(finalSteps);
-          // Flush remaining content immediately (typewriter completes on next tick)
-          const finalContent = tokenAccumRef.current;
-          if (!firstToken && finalContent) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === msgId ? { ...m, content: finalContent } : m
-              )
-            );
+          setReasoningCollapsed(true);
+
+          // Signal typewriter to finalize when it catches up (don't flush instantly)
+          streamDoneRef.current = true;
+
+          // If no tokens were ever received, clean up immediately
+          if (firstToken) {
+            setStreamingMsgId(null);
+            setTimeout(() => setActiveAgenticSteps(null), 400);
           }
-          setStreamingMsgId(null);
 
         } else if (event.type === 'error') {
           throw new Error(event.message);
@@ -264,10 +300,10 @@ function LeafyContent() {
         </span>
         <Badge variant="green"  className={css`font-size: 10px !important;`}>Vector Search</Badge>
         <Badge variant="blue"   className={css`font-size: 10px !important;`}>voyage-finance-2</Badge>
-        <Badge variant="yellow" className={css`font-size: 10px !important;`}>L3 Agent</Badge>
+        <Badge variant="yellow" className={css`font-size: 10px !important;`}>AI Agent</Badge>
       </div>
 
-      {/* Collapsible Vessel Map */}
+      {/* Collapsible Fleet Asset Map */}
       <div className={css`flex-shrink: 0; border-bottom: 1px solid ${borderColor};`}>
         <button
           onClick={() => setMapExpanded(!mapExpanded)}
@@ -287,11 +323,11 @@ function LeafyContent() {
           `}
         >
           <Icon glyph={mapExpanded ? 'ChevronDown' : 'ChevronRight'} size={12} />
-          Vessel Tracking Map
+          Fleet Asset Map
         </button>
         {mapExpanded && (
           <div className={css`animation: ${fadeIn} 0.2s ease;`}>
-            <VesselTrackingMap />
+            <FleetAssetMap />
           </div>
         )}
       </div>
@@ -368,52 +404,98 @@ function LeafyContent() {
                   padding-bottom: 4px;
                 `}
               >
-                {/* 1. Initial dot only if panel is not yet open (before activeAgenticSteps is set) */}
+                {/* 1. Prominent planning banner — before the first tool fires */}
                 {isTyping && activeAgenticSteps === null && (
-                  <div className={css`display: flex; align-items: center; gap: 8px; color: ${textColor}; font-size: 12px; font-style: italic; padding: 4px 0;`}>
-                    <span className={css`width: 6px; height: 6px; border-radius: 50%; background: ${palette.green.base}; animation: ${blink} 1s ease-in-out infinite;`} />
-                    EnerLeafy is thinking...
+                  <div className={css`
+                    display: flex; align-items: center; gap: 12px;
+                    padding: 12px 16px;
+                    border-radius: 10px;
+                    background: ${darkMode ? 'rgba(0,237,100,0.07)' : 'rgba(0,180,60,0.06)'};
+                    border: 1px solid ${darkMode ? palette.green.dark2 : palette.green.light2};
+                    animation: ${fadeIn} 0.2s ease;
+                  `}>
+                    <span className={css`font-size: 22px; flex-shrink: 0;`}>🧠</span>
+                    <div>
+                      <div className={css`
+                        font-size: 14px; font-weight: 700;
+                        color: ${darkMode ? palette.green.light1 : palette.green.dark2};
+                      `}>
+                        Planning…
+                      </div>
+                      <div className={css`
+                        font-size: 11px; color: ${darkMode ? palette.gray.light1 : palette.gray.dark1};
+                        margin-top: 2px;
+                      `}>
+                        EnerLeafy is analyzing your request and selecting tools
+                      </div>
+                    </div>
+                    <div className={css`
+                      margin-left: auto; width: 18px; height: 18px; flex-shrink: 0;
+                      border: 2px solid transparent;
+                      border-top: 2px solid ${palette.green.base};
+                      border-radius: 50%;
+                      animation: ${blink} 1s ease-in-out infinite;
+                    `} />
                   </div>
                 )}
 
-                {/* 2. Reasoning panel — appears immediately when message is sent, BEFORE the response text */}
+                {/* 2. Agent reasoning panel — always expanded when steps are present */}
                 {activeAgenticSteps !== null && (
                   <div
                     className={css`
-                      border: 1px solid ${darkMode ? palette.gray.dark2 : palette.gray.light2};
-                      border-radius: 8px;
+                      border: 1px solid ${darkMode ? palette.green.dark2 : palette.green.light2};
+                      border-radius: 10px;
                       overflow: hidden;
                       animation: ${fadeIn} 0.2s ease;
+                      background: ${darkMode ? 'rgba(0,237,100,0.04)' : 'rgba(0,180,60,0.03)'};
                     `}
                   >
+                    {/* Header — clickable to toggle collapse */}
                     <button
-                      onClick={() => setStepsVisible((v) => !v)}
+                      onClick={() => setReasoningCollapsed(c => !c)}
                       className={css`
-                        display: flex; align-items: center; gap: 6px; width: 100%;
-                        padding: 7px 12px; border: none;
-                        background: ${darkMode ? 'rgba(255,255,255,0.03)' : palette.gray.light3};
-                        cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 600;
-                        color: ${darkMode ? palette.green.light1 : palette.green.dark2}; text-align: left;
-                        &:hover { background: ${darkMode ? 'rgba(255,255,255,0.06)' : palette.gray.light2}; }
+                        display: flex; align-items: center; gap: 8px; width: 100%;
+                        padding: 9px 14px;
+                        background: ${darkMode ? 'rgba(0,237,100,0.07)' : 'rgba(0,160,50,0.06)'};
+                        border-bottom: ${reasoningCollapsed ? 'none' : `1px solid ${darkMode ? palette.green.dark2 : palette.green.light2}`};
+                        border: none; cursor: pointer; font-family: inherit; text-align: left;
                       `}
                     >
-                      <Icon glyph={stepsVisible ? 'ChevronDown' : 'ChevronRight'} size={12} />
-                      Agent Reasoning
-                      <span className={css`font-weight: 400; color: ${darkMode ? palette.gray.light1 : palette.gray.dark1};`}>
+                      <span className={css`font-size: 12px; transition: transform 0.2s; transform: rotate(${reasoningCollapsed ? '-90deg' : '0deg'});`}>▼</span>
+                      <span className={css`font-size: 16px;`}>🧠</span>
+                      <span className={css`
+                        font-size: 13px; font-weight: 700;
+                        color: ${darkMode ? palette.green.light1 : palette.green.dark2};
+                      `}>
+                        Agent Reasoning
+                      </span>
+                      <span className={css`
+                        font-size: 11px; font-weight: 400;
+                        color: ${darkMode ? palette.gray.light1 : palette.gray.dark1};
+                      `}>
                         {activeAgenticSteps.length === 0 ? (
-                          <span className={css`margin-left: 6px; color: ${palette.green.base};`}>planning…</span>
+                          <span className={css`color: ${palette.green.base}; font-weight: 600;`}>selecting tools…</span>
                         ) : (
                           <>
-                            {' '}— {activeAgenticSteps.filter(s => s.status === 'completed').length}/{activeAgenticSteps.length} tools
+                            {activeAgenticSteps.filter(s => s.status === 'completed').length}/{activeAgenticSteps.length} tools
                             {activeAgenticSteps.some(s => s.status === 'running') && (
-                              <span className={css`margin-left: 6px; color: ${palette.green.base};`}>in progress…</span>
+                              <span className={css`margin-left: 6px; color: ${palette.green.base}; font-weight: 600;`}>
+                                in progress…
+                              </span>
+                            )}
+                            {activeAgenticSteps.every(s => s.status === 'completed') && (
+                              <span className={css`margin-left: 6px; color: ${darkMode ? palette.green.light1 : palette.green.dark2}; font-weight: 600;`}>
+                                ✓ all done
+                              </span>
                             )}
                           </>
                         )}
                       </span>
                     </button>
-                    {stepsVisible && (
-                      <div className={css`padding: 4px 12px 12px; animation: ${fadeIn} 0.15s ease;`}>
+
+                    {/* Steps — collapsible with max-height */}
+                    {!reasoningCollapsed && (
+                      <div className={css`padding: 6px 14px 14px; animation: ${fadeIn} 0.15s ease; max-height: 200px; overflow-y: auto;`}>
                         <AgenticStepIndicator steps={activeAgenticSteps} reasoningText={reasoningText} />
                       </div>
                     )}
@@ -427,17 +509,20 @@ function LeafyContent() {
                   !streamingMsgId && (
                   <div className={css`
                     display: flex; align-items: center; gap: 8px;
-                    padding: 6px 2px;
+                    padding: 8px 14px;
+                    border-radius: 8px;
+                    background: ${darkMode ? 'rgba(0,237,100,0.05)' : 'rgba(0,180,60,0.04)'};
                     color: ${darkMode ? palette.green.light1 : palette.green.dark1};
                     font-size: 12px; font-style: italic;
                     animation: ${fadeIn} 0.2s ease;
                   `}>
                     <span className={css`
-                      width: 6px; height: 6px; border-radius: 50%;
+                      width: 8px; height: 8px; border-radius: 50%;
                       background: ${palette.green.base};
                       animation: ${blink} 0.9s ease-in-out infinite;
+                      flex-shrink: 0;
                     `} />
-                    …Leafying
+                    …Leafying — composing response
                   </div>
                 )}
 

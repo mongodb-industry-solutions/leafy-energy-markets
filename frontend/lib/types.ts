@@ -245,6 +245,39 @@ export interface ReplayStep {
   stateAfter: Record<string, unknown>;
 }
 
+// Fleet Asset Map (Trading Dashboard)
+export type AssetType = 'wind' | 'solar' | 'hydro' | 'gas' | 'battery' | 'biomass';
+
+export interface AssetRecentEvent {
+  streamType: string;
+  eventType: string;
+  assetId: string;
+  timestamp: string;
+}
+
+export interface FleetAsset {
+  id: string;
+  type: AssetType;
+  name: string;
+  lat: number;
+  lng: number;
+  capacityMw: number;
+  currentOutputMw: number;
+  utilisationPct: number;
+  status: 'online' | 'alert' | 'idle';
+  recentEvents: AssetRecentEvent[];
+}
+
+export interface TradingState {
+  assets: FleetAsset[];
+  totalOutputMw: number;
+  totalCapacityMw: number;
+  fleetUtilisationPct: number;
+  recentEvents: AssetRecentEvent[];
+  simulationRunning: boolean;
+  timestamp: string;
+}
+
 export interface ComplianceScenario {
   id: string;
   title: string;

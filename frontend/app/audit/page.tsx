@@ -10,7 +10,7 @@ import { Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '@/components/Providers';
 import PageHeader from '@/components/shared/PageHeader';
-import AutonomyBadge from '@/components/shared/AutonomyBadge';
+
 import EventTimeline from '@/components/audit/EventTimeline';
 import AggregateStateView from '@/components/audit/AggregateStateView';
 import ReplayControls from '@/components/audit/ReplayControls';
@@ -219,7 +219,7 @@ export default function AuditPage() {
                   ? 'Analyzing…'
                   : analysisDone
                   ? 'Re-analyze'
-                  : <><span>Deep Analysis (AI Agent)</span> <AutonomyBadge level={2} compact /></>
+                  : 'Deep Analysis (AI Agent)'
                 }
               </Button>
               {analysisLoading && !analysisText && (

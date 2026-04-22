@@ -47,6 +47,13 @@
     "recharts": "^2.12.7",
     "streamdown": "^2.5.0"
   },
+  "overrides": {
+    "lodash": "^4.18.0",
+    "lodash-es": "^4.18.0",
+    "picomatch": "^4.0.4",
+    "flatted": "^3.4.2",
+    "minimatch": "^9.0.7"
+  },
   "devDependencies": {
     "@types/leaflet": "^1.9.21",
     "@types/node": "25.2.1",

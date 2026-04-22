@@ -258,6 +258,129 @@ export default function CQRSPage() {
         </div>
       </Card>
 
+      {/* ── Why CQRS for Compliance ───────────────────────── */}
+      <Card darkMode={darkMode} className={css`padding: 24px;`}>
+        <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 12px !important;`}>
+          Why CQRS + Event Sourcing for Energy Compliance
+        </Subtitle>
+        <Body className={css`color: ${textColor} !important; font-size: 14px !important; line-height: 1.7 !important; margin-bottom: 16px !important;`}>
+          Each compliance scenario demonstrates a specific regulatory requirement that is naturally satisfied by this architecture. Click a regulation to see why CQRS is the right fit:
+        </Body>
+
+        <div className={css`display: flex; flex-direction: column; gap: 8px;`}>
+          {REGULATIONS.map((reg) => {
+            const isExpanded = expandedReg === reg.id;
+            return (
+              <div key={reg.id}>
+                <button
+                  onClick={() => setExpandedReg(isExpanded ? null : reg.id)}
+                  className={css`
+                    width: 100%;
+                    text-align: left;
+                    background: ${isExpanded ? accentBg : darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'};
+                    border: 1px solid ${isExpanded ? palette.green.base : borderColor};
+                    border-radius: 8px;
+                    padding: 14px 18px;
+                    cursor: pointer;
+                    font-family: inherit;
+                    transition: all 0.15s ease;
+                    &:hover { border-color: ${palette.green.base}; }
+                  `}
+                >
+                  <div className={css`display: flex; align-items: center; justify-content: space-between;`}>
+                    <div className={css`display: flex; align-items: center; gap: 10px;`}>
+                      <Icon
+                        glyph={isExpanded ? 'ChevronDown' : 'ChevronRight'}
+                        size={16}
+                        fill={palette.green.base}
+                      />
+                      <span className={css`font-size: 14px; font-weight: 600; color: ${labelColor};`}>
+                        {reg.scenario}
+                      </span>
+                      <Badge variant="blue">{reg.title}</Badge>
+                    </div>
+                  </div>
+                </button>
+                {isExpanded && (
+                  <div
+                    className={css`
+                      padding: 16px 18px 16px 44px;
+                      border: 1px solid ${borderColor};
+                      border-top: none;
+                      border-radius: 0 0 8px 8px;
+                      background: ${darkMode ? 'rgba(255,255,255,0.01)' : 'rgba(0,0,0,0.01)'};
+                    `}
+                  >
+                    <Body className={css`color: ${textColor} !important; font-size: 13px !important; line-height: 1.7 !important;`}>
+                      {reg.why}
+                    </Body>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* ── Key Properties ────────────────────────────────── */}
+      <Card darkMode={darkMode} className={css`padding: 24px;`}>
+        <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 16px !important;`}>
+          Key Properties
+        </Subtitle>
+        <div className={css`
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+          gap: 12px;
+        `}>
+          {[
+            {
+              title: 'Immutability',
+              desc: 'Events are append-only. No UPDATE, no DELETE. Once a trade is recorded, it exists forever in the stream. Corrections are new events that reference the version they correct.',
+              badge: 'Audit',
+              variant: 'green' as const,
+            },
+            {
+              title: 'Temporal Query',
+              desc: 'fold() can replay to any version. "What was the portfolio state at 14:15?" is a query, not a guess. Time-travel debugging is built into the architecture.',
+              badge: 'Replay',
+              variant: 'blue' as const,
+            },
+            {
+              title: 'Optimistic Concurrency',
+              desc: 'MongoDB transactions + version-based unique index prevent conflicting writes. Two commands targeting the same stream version fail fast — no silent data loss.',
+              badge: 'Consistency',
+              variant: 'yellow' as const,
+            },
+            {
+              title: 'Separate Read Models',
+              desc: 'Different stakeholders can project different views from the same events. A DSO and an aggregator can each fold() with different methodologies and compare results.',
+              badge: 'CQRS',
+              variant: 'red' as const,
+            },
+          ].map((item) => (
+            <div
+              key={item.title}
+              className={css`
+                padding: 16px;
+                border-radius: 8px;
+                border: 1px solid ${borderColor};
+                background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'};
+              `}
+            >
+              <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px;`}>
+                <Badge variant={item.variant}>{item.badge}</Badge>
+                <span className={css`font-size: 14px; font-weight: 600; color: ${labelColor};`}>
+                  {item.title}
+                </span>
+              </div>
+              <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
+                {item.desc}
+              </Body>
+            </div>
+          ))}
+        </div>
+      </Card>
+
       {/* ── CQRS Sequence Diagram ─────────────────────────── */}
       <Card darkMode={darkMode} className={css`padding: 24px; overflow-x: auto;`}>
         <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 4px !important;`}>
@@ -375,127 +498,6 @@ export default function CQRSPage() {
         <CodeBlock darkMode={darkMode} title="foldEvents() — Client-side event replay" file="frontend/components/audit/AggregateStateView.tsx" lang="typescript" code={FOLD_TS} />
       </Card>
 
-      {/* ── Why CQRS for Compliance ───────────────────────── */}
-      <Card darkMode={darkMode} className={css`padding: 24px;`}>
-        <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 12px !important;`}>
-          Why CQRS + Event Sourcing for Energy Compliance
-        </Subtitle>
-        <Body className={css`color: ${textColor} !important; font-size: 14px !important; line-height: 1.7 !important; margin-bottom: 16px !important;`}>
-          Each compliance scenario in the Event Inspector tab demonstrates a specific regulatory requirement that is naturally satisfied by this architecture. Click a regulation to see why CQRS is the right fit:
-        </Body>
-
-        <div className={css`display: flex; flex-direction: column; gap: 8px;`}>
-          {REGULATIONS.map((reg) => {
-            const isExpanded = expandedReg === reg.id;
-            return (
-              <div key={reg.id}>
-                <button
-                  onClick={() => setExpandedReg(isExpanded ? null : reg.id)}
-                  className={css`
-                    width: 100%;
-                    text-align: left;
-                    background: ${isExpanded ? accentBg : darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'};
-                    border: 1px solid ${isExpanded ? palette.green.base : borderColor};
-                    border-radius: 8px;
-                    padding: 14px 18px;
-                    cursor: pointer;
-                    transition: all 0.15s ease;
-                    &:hover { border-color: ${palette.green.base}; }
-                  `}
-                >
-                  <div className={css`display: flex; align-items: center; justify-content: space-between;`}>
-                    <div className={css`display: flex; align-items: center; gap: 10px;`}>
-                      <Icon
-                        glyph={isExpanded ? 'ChevronDown' : 'ChevronRight'}
-                        size={16}
-                        fill={palette.green.base}
-                      />
-                      <span className={css`font-size: 14px; font-weight: 600; color: ${labelColor};`}>
-                        {reg.scenario}
-                      </span>
-                      <Badge variant="blue">{reg.title}</Badge>
-                    </div>
-                  </div>
-                </button>
-                {isExpanded && (
-                  <div
-                    className={css`
-                      padding: 16px 18px 16px 44px;
-                      border: 1px solid ${borderColor};
-                      border-top: none;
-                      border-radius: 0 0 8px 8px;
-                      background: ${darkMode ? 'rgba(255,255,255,0.01)' : 'rgba(0,0,0,0.01)'};
-                    `}
-                  >
-                    <Body className={css`color: ${textColor} !important; font-size: 13px !important; line-height: 1.7 !important;`}>
-                      {reg.why}
-                    </Body>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      {/* ── Key Properties ────────────────────────────────── */}
-      <Card darkMode={darkMode} className={css`padding: 24px;`}>
-        <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 16px !important;`}>
-          Key Properties
-        </Subtitle>
-        <div className={css`
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-          gap: 12px;
-        `}>
-          {[
-            {
-              title: 'Immutability',
-              desc: 'Events are append-only. No UPDATE, no DELETE. Once a trade is recorded, it exists forever in the stream. Corrections are new events that reference the version they correct.',
-              badge: 'Audit',
-              variant: 'green' as const,
-            },
-            {
-              title: 'Temporal Query',
-              desc: 'fold() can replay to any version. "What was the portfolio state at 14:15?" is a query, not a guess. Time-travel debugging is built into the architecture.',
-              badge: 'Replay',
-              variant: 'blue' as const,
-            },
-            {
-              title: 'Optimistic Concurrency',
-              desc: 'MongoDB transactions + version-based unique index prevent conflicting writes. Two commands targeting the same stream version fail fast — no silent data loss.',
-              badge: 'Consistency',
-              variant: 'yellow' as const,
-            },
-            {
-              title: 'Separate Read Models',
-              desc: 'Different stakeholders can project different views from the same events. A DSO and an aggregator can each fold() with different methodologies and compare results.',
-              badge: 'CQRS',
-              variant: 'red' as const,
-            },
-          ].map((item) => (
-            <div
-              key={item.title}
-              className={css`
-                padding: 16px;
-                border-radius: 8px;
-                border: 1px solid ${borderColor};
-                background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'};
-              `}
-            >
-              <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px;`}>
-                <Badge variant={item.variant}>{item.badge}</Badge>
-                <span className={css`font-size: 14px; font-weight: 600; color: ${labelColor};`}>
-                  {item.title}
-                </span>
-              </div>
-              <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
-                {item.desc}
-              </Body>
-            </div>
-          ))}
-        </div>
-      </Card>
     </div>
   );
 }

@@ -1070,7 +1070,7 @@ export default function DashboardPage() {
   if (!state) {
     return (
       <div className={css`display: flex; flex-direction: column; gap: 24px;`}>
-        <PageHeader title="Trading Dashboard" subtitle="European IPP — real-time fleet, position, and P&L monitoring" />
+        <PageHeader title="Trading Dashboard" subtitle="European IPP — real-time fleet, position, and revenue monitoring" />
         <div className={css`display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 32px; gap: 16px; color: ${mutedColor};`}>
           <div className={css`font-size: 32px; animation: ${blink} 1.2s ease-in-out infinite;`}>⚡</div>
           <Body darkMode={darkMode}>Connecting to trading engine…</Body>
@@ -1108,7 +1108,7 @@ export default function DashboardPage() {
       {/* ── HEADER ── */}
       <PageHeader
         title="Trading Dashboard"
-        subtitle="European IPP — real-time fleet, position, and P&L monitoring"
+        subtitle="European IPP — real-time fleet, position, and revenue monitoring"
         action={
           <div className={css`display: flex; align-items: center; gap: 10px;`}>
             {state.running && (
@@ -1185,7 +1185,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── ROW: Capacity Allocation + P&L ── */}
+      {/* ── ROW: Capacity Allocation + Revenue ── */}
       <div className={css`display: flex; gap: 20px; align-items: flex-start; @media (max-width: 900px) { flex-direction: column; }`}>
         <CapacityAllocationPanel
           onlineTypes={onlineTypes}
@@ -1197,15 +1197,15 @@ export default function DashboardPage() {
           darkMode={darkMode}
         />
 
-        {/* P&L Tracker */}
+        {/* Revenue Tracker */}
         <section className={css`flex: 1; min-width: 0; background: ${panelBg}; border: 1px solid ${borderColor}; border-radius: 12px; padding: 20px; display: flex; flex-direction: column;`}>
           <div className={css`margin-bottom: 16px;`}>
-            <H3 darkMode={darkMode}>P&amp;L Tracker</H3>
+            <H3 darkMode={darkMode}>Revenue Tracker</H3>
           </div>
 
           {/* Big realised number */}
           <div className={css`margin-bottom: 16px; text-align: center; padding: 16px; border-radius: 10px; background: ${darkMode ? '#0d1a2d' : palette.gray.light3};`}>
-            <div className={css`font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: ${mutedColor}; margin-bottom: 4px;`}>Realised P&amp;L</div>
+            <div className={css`font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: ${mutedColor}; margin-bottom: 4px;`}>Realised Revenue</div>
             <div className={css`font-size: 32px; font-weight: 800; color: ${portfolio.realisedPnlEur > 0 ? palette.green.base : portfolio.realisedPnlEur < 0 ? palette.red.base : textColor}; font-variant-numeric: tabular-nums;`}>
               €{fmt(portfolio.realisedPnlEur, 0)}
             </div>
@@ -1220,13 +1220,13 @@ export default function DashboardPage() {
 
           {/* Unrealised */}
           <div className={css`padding: 10px 14px; border-radius: 8px; background: ${darkMode ? '#060e1c' : palette.gray.light2}; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;`}>
-            <span className={css`font-size: 12px; color: ${mutedColor};`}>Unrealised P&amp;L</span>
+            <span className={css`font-size: 12px; color: ${mutedColor};`}>Unrealised Revenue</span>
             <span className={css`font-size: 15px; font-weight: 700; color: ${portfolio.unrealisedPnlEur >= 0 ? palette.green.base : palette.red.base};`}>
               {portfolio.unrealisedPnlEur >= 0 ? '+' : ''}€{fmt(portfolio.unrealisedPnlEur, 0)}
             </span>
           </div>
 
-          {/* P&L breakdown grouped by asset type */}
+          {/* Revenue breakdown grouped by asset type */}
           {tradeLog.length > 0 ? (() => {
             const byType: Record<string, { revenue: number; trades: number; mwh: number }> = {};
             for (const t of tradeLog) {
@@ -1271,7 +1271,7 @@ export default function DashboardPage() {
             );
           })() : (
             <div className={css`flex: 1; display: flex; align-items: center; justify-content: center; color: ${mutedColor}; font-size: 13px;`}>
-              Execute trades to see P&amp;L breakdown
+              Execute trades to see revenue breakdown
             </div>
           )}
         </section>

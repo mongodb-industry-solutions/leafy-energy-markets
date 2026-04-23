@@ -7,7 +7,7 @@ A European renewable energy trading platform built on MongoDB Atlas, demonstrati
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │              Next.js 14 Frontend (LeafyGreen UI)                         │
-│  /dashboard  /leafy  /audit  /cqrs  /architecture  /evals               │
+│  /dashboard  /leafy  /audit  /cqrs  /architecture                       │
 └──────┬──────────────────────────────┬────────────────────┬───────────────┘
        │                              │                    │
  POST /api/*                    GET /api/*           SSE /api/trading
@@ -28,11 +28,11 @@ A European renewable energy trading platform built on MongoDB Atlas, demonstrati
 │                          MongoDB Atlas                                    │
 │                                                                          │
 │  ┌──────────────────────┐  ┌─────────────────────┐  ┌─────────────────┐  │
-│  │ events (append-only) │  │ Read Model Colls    │  │ rag_evals       │  │
-│  │                      │  │                     │  │ (RAGAS results) │  │
-│  │ { streamId, version, │  │ tariff_scenarios    │  │                 │  │
-│  │   eventType, payload │  │                     │  │ advisor_        │  │
-│  │   timestamp,         │  │ Built via Change    │  │ interactions    │  │
+│  │ events (append-only) │  │ Read Model Colls    │  │ advisor_        │  │
+│  │                      │  │                     │  │ interactions    │  │
+│  │ { streamId, version, │  │ tariff_scenarios    │  │ (agent memory)  │  │
+│  │   eventType, payload │  │                     │  │                 │  │
+│  │   timestamp,         │  │ Built via Change    │  │                 │  │
 │  │   metadata }         │  │ Streams from events │  │                 │  │
 │  └──────────┬───────────┘  └─────────────────────┘  └─────────────────┘  │
 │             │                                                             │
@@ -45,14 +45,13 @@ A European renewable energy trading platform built on MongoDB Atlas, demonstrati
 
 ## Features
 
-- **Trading Dashboard** — Real-time fleet monitoring with 8 European energy assets (wind, solar, hydro, gas, battery, biomass). Position gap tracking, live market prices (Day-Ahead, Intraday, Flexibility), capacity allocation, one-click trade execution, and P&L tracking with per-asset-type breakdown.
-- **EnerLeafy AI** — LangChain ReAct advisor with 7 tools: fleet analysis, policy search, market intelligence, generator status, energy prices (EIA), energy news, and web search. Powered by Claude (`claude-sonnet-4-6`) via Azure AI Foundry or Anthropic direct. Fleet asset map with live positions and weather alert simulation.
+- **Trading Dashboard** — Real-time fleet monitoring with 8 European energy assets (wind, solar, hydro, gas, battery, biomass). Position gap tracking (committed vs forecast with percentages), live market prices across Day-Ahead, Intraday, and Flexibility channels, capacity allocation with one-click trade execution, and a Revenue Tracker showing captured revenue vs daily target with per-asset-type breakdown.
+- **EnerLeafy AI** — LangChain ReAct advisor with 6 tools: fleet analysis, policy search, market intelligence, generator status, energy news, and web search. Powered by Claude (`claude-sonnet-4-6`) via Azure AI Foundry or Anthropic direct. Fleet asset map with live European positions and Iberian storm weather alert simulation.
 - **Auditing** — Imbalance Settlement scenario with `fold()` replay using actual fleet assets (Hollandse Kust Wind, Rhine CCGT, Rotterdam BESS). Step-by-step event replay against EU 2017/2195. LLM-powered compliance analysis.
-- **CQRS** — Visual explainer of the Command/Query Responsibility Segregation pattern used throughout the platform.
-- **Architecture** — Container Diagram (C2) and Embedding Model comparison (voyage-finance-2 benchmarks vs OpenAI, Cohere, BAAI).
-- **Evals** — RAGAS evaluation dashboard for assessing RAG pipeline quality (faithfulness, answer relevancy, context precision, context recall).
+- **CQRS** — Visual explainer of the Command/Query Responsibility Segregation pattern: why CQRS for energy compliance, key properties, sequence diagrams, and code walkthroughs.
+- **Architecture** — Interactive container diagram with clickable tiles and explanation panels, embedding model benchmark comparison (voyage-finance-2 vs OpenAI, Cohere, BAAI), and planned RAG data sources (ENTSO-E, ACER REMIT, EU ETS, ECMWF, PPA reports, TSO balancing).
 - **Dark Mode** — Full dark/light theme toggle across all views.
-- **Landing Page** — Premium branding with editorial serif typography, animated energy source icons, and market ticker.
+- **Landing Page** — Premium branding with editorial serif typography, animated energy source icons, and live market ticker.
 
 ## Fleet Assets
 
@@ -70,6 +69,16 @@ The trading simulator manages 8 European energy assets streaming real-time telem
 | Gironde Biomass | Biomass | FR | 80 MW |
 
 **Event types**: `MeterReadingRecorded`, `PerformanceVarianceDetected`, `WindForecastUpdated`, `SolarIrradianceForecastUpdated`, `WeatherAlertIssued`, `PositionGapDetected`, `TradeExecuted`, `PnlSnapshotRecorded`, `CapacityAllocationSet`
+
+## Revenue Model
+
+The dashboard tracks three key revenue metrics:
+
+- **Fleet Generation Value (€/hr)** — Current fleet output multiplied by the best available market price. Represents the hourly revenue opportunity if all generation were sold at the best channel right now. Updates every 5 seconds.
+- **Captured Revenue** — Actual revenue from executed trades. When the trader allocates capacity and clicks "Trade", a sell order is executed at the selected channel's price and the revenue is recorded immediately.
+- **Daily Target** — Derived from fleet capacity at startup: `total capacity × 70% avg utilisation × avg market price × 8h trading window`. The progress bar shows how much of today's revenue potential has been captured through trades.
+
+The gap between Fleet Generation Value and Captured Revenue tells the trader how much revenue is being left on the table.
 
 ## Compliance Scenario
 
@@ -90,14 +99,14 @@ The `/leafy` tab runs a LangChain ReAct agent backed by Claude (`claude-sonnet-4
 **Context provided**:
 - Fleet assets: output, forecast, variance, utilisation per asset
 - Live market prices: Day-Ahead, Intraday, Flexibility channels
-- Portfolio state: committed vs forecast, gap type, realised/unrealised P&L
+- Portfolio state: committed vs forecast, gap type, captured revenue, fleet generation value
 - Weather & performance events: wind/solar forecast changes, alerts, variance
 
 **Tools**:
 
 | Tool | Description |
 |------|-------------|
-| `analyze_portfolio` | Fleet output by type, live prices, position gap, P&L, weather events |
+| `analyze_portfolio` | Fleet output by type, live prices, position gap, revenue, weather events |
 | `get_generator_status` | Per-asset breakdown of output, forecast, variance |
 | `search_policies` | Hybrid vector + BM25 search over EU/IEA policy documents |
 | `search_market_intel` | Hybrid search over market intelligence and ESG reports |
@@ -133,20 +142,27 @@ See the Architecture tab → Embedding Model for full benchmark comparison.
 
 ## Quick Start
 
-### One-Command Demo
+### Docker (Recommended)
+
+```bash
+cp .env.example .env
+# Edit .env with MONGO_URI and ANTHROPIC_API_KEY
+docker compose up --build
+```
+
+Open [http://localhost:3000](http://localhost:3000). See [HOWTO.md](HOWTO.md) for full Docker instructions.
+
+### Local Development
 
 ```bash
 ./start-demo.sh
 ```
 
-Starts backend (port 8000) + frontend (port 3000). Logs: `tail -f /tmp/leafy-backend.log`
-
-### Manual Setup
+Or manually:
 
 ```bash
-# Configure
 cp deploy/env.example deploy/.env
-# Edit deploy/.env with MONGO_URI, ANTHROPIC_API_KEY or AZURE_FOUNDRY_*, VOYAGE_API_KEY
+# Edit deploy/.env with your credentials
 
 # Backend
 python3.12 -m venv venv && source venv/bin/activate
@@ -156,20 +172,6 @@ uvicorn app.main:app --reload --port 8000
 # Frontend
 cd frontend && npm install && npm run dev
 ```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-### Docker
-
-```bash
-cp deploy/env.example deploy/.env
-# Edit deploy/.env with your credentials
-cd deploy && docker compose up --build
-```
-
-Frontend at `http://localhost:3000`, backend at `http://localhost:8000`.
-
-See [HOWTO.md](HOWTO.md) for full Docker instructions and troubleshooting.
 
 ## API Endpoints
 
@@ -184,8 +186,6 @@ See [HOWTO.md](HOWTO.md) for full Docker instructions and troubleshooting.
 | POST | `/api/advisor/stream` | AI advisor (SSE streaming) |
 | POST | `/api/audit/analyze` | LLM compliance analysis |
 | POST | `/api/search/hybrid` | Hybrid vector + BM25 search |
-| POST | `/api/evals/run` | Trigger RAGAS evaluation |
-| GET | `/api/evals/results` | Fetch evaluation results |
 | GET | `/api/events/stream/{id}` | Get events for a stream |
 | GET | `/api/events/stream/{id}/replay` | Step-by-step fold() replay |
 

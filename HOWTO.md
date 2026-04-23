@@ -33,15 +33,31 @@ First build takes ~2 minutes (downloads Python/Node dependencies). Subsequent ru
 
 Go to **[http://localhost:3000](http://localhost:3000)**
 
+## Demo Walkthrough
+
+1. **Landing Page** — Click "Open Dashboard" to enter
+2. **Dashboard** — Click "Start Simulation" to begin streaming live fleet data
+   - Watch 8 European energy assets generate output in real-time
+   - **Fleet Generation Value** shows the hourly revenue opportunity (output × best price)
+   - Allocate capacity per asset type, select a market channel, and click **Trade**
+   - **Captured Revenue** fills up the progress bar toward the daily target
+3. **EnerLeafy AI** — Ask the AI advisor about your fleet. Try "Trade Recommendations" for optimal allocation strategy
+   - Click **"Trigger Iberian Storm"** on the map to simulate a weather event (ES/PT solar drops to <20%)
+   - Then ask the AI advisor for updated recommendations — it will factor in the storm
+4. **Auditing** — Step through the Imbalance Settlement scenario event by event, watching `fold()` reconstruct state
+5. **CQRS** — Read why Event Sourcing + CQRS is purpose-built for EU energy compliance
+6. **Architecture** — Click any tile in the container diagram for detailed explanations
+
 ## What Works Without API Keys
 
 | Feature | Needs MongoDB? | Needs LLM? |
 |---------|---------------|------------|
 | Trading Dashboard (fleet, prices, trades) | No | No |
 | Position Gap + Revenue Tracker | No | No |
+| Fleet Generation Value | No | No |
 | Weather Alert (Iberian Storm) | No | No |
 | EnerLeafy AI Advisor | Yes | Yes |
-| Auditing (Event Replay) | No | Analysis only |
+| Auditing (Event Replay) | No | Deep Analysis only |
 | CQRS Explainer | No | No |
 | Architecture Diagram | No | No |
 

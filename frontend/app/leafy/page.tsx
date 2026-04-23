@@ -15,9 +15,6 @@ import AgenticStepIndicator from '@/components/leafy/AgenticStepIndicator';
 import LoadingState from '@/components/shared/LoadingState';
 import { suggestedPrompts } from '@/lib/mock-data';
 import { streamAdvisor } from '@/lib/api';
-import { useLiveFeed } from '@/lib/live-feed-context';
-import { useGenerator } from '@/lib/generator-context';
-import { positions as mockPositions } from '@/lib/mock-data';
 import type { ChatMessage, AgenticStep } from '@/lib/types';
 
 const FleetAssetMap = dynamic(
@@ -53,8 +50,6 @@ function toolCallLabel(name: string): string {
 
 function LeafyContent() {
   const { darkMode } = useDarkMode();
-  const liveFeed = useLiveFeed();
-  const gen = useGenerator();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -262,7 +257,7 @@ function LeafyContent() {
     } finally {
       setIsTyping(false);
     }
-  }, [liveFeed, gen.substations, messages, serverSessionId, sessionId]);
+  }, [messages, serverSessionId, sessionId]);
 
   const handlePromptSelect = useCallback(
     (prompt: string) => { sendMessage(prompt); },

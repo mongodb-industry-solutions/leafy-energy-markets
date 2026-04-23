@@ -1,7 +1,7 @@
 # Environment variables
 .env
-.env.*
-.local.env
+.env.local
+!.env.example
 
 # Python
 __pycache__/
@@ -42,5 +42,5 @@ coverage/
 
 # VibeCoding
 .claude
-.githubgraphify-out/
+graphify-out/
 iea-data/

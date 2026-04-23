@@ -1,62 +1,59 @@
-# HOWTO: Run with Docker
-
-This guide explains how to run Leafy Energy Markets using Docker Compose.
+# HOWTO: Run the Demo with Docker
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) (v20+)
-- [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
-- A MongoDB Atlas connection string
-- An Anthropic API key or Azure AI Foundry credentials
+- [Docker Desktop](https://docs.docker.com/get-docker/) (v20+) — make sure it's running
+- A MongoDB Atlas connection string ([free tier works](https://www.mongodb.com/cloud/atlas/register))
+- An Anthropic API key ([get one here](https://console.anthropic.com))
 
-## 1. Configure Environment
+## Step 1: Configure
 
 ```bash
-cp deploy/env.example deploy/.env
+cp .env.example .env
 ```
 
-Edit `deploy/.env` with your credentials:
+Edit `.env` with your credentials:
 
 ```env
-# Required
 MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/?retryWrites=true&w=majority
-
-# LLM — choose one:
 ANTHROPIC_API_KEY=sk-ant-...
-# OR
-AZURE_FOUNDRY_API_KEY=your-key
-AZURE_FOUNDRY_ENDPOINT=https://your-endpoint.services.ai.azure.com/api
-
-# Optional
-VOYAGE_API_KEY=your-voyage-key
 ```
 
-## 2. Build and Start
+That's it. The demo works with just these two values. VoyageAI embeddings are optional (falls back automatically).
 
-From the project root:
+## Step 2: Run
 
 ```bash
-cd deploy
 docker compose up --build
 ```
 
-This builds both containers and starts them:
-- **Backend** (FastAPI) → `http://localhost:8000`
-- **Frontend** (Next.js) → `http://localhost:3000`
+First build takes ~2 minutes (downloads Python/Node dependencies). Subsequent runs use Docker cache and start in seconds.
 
-The frontend waits for the backend health check before starting.
+## Step 3: Open
 
-## 3. Access the App
+Go to **[http://localhost:3000](http://localhost:3000)**
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+## What Works Without API Keys
 
-## 4. Stop
+| Feature | Needs MongoDB? | Needs LLM? |
+|---------|---------------|------------|
+| Trading Dashboard (fleet, prices, trades) | No | No |
+| Position Gap + Revenue Tracker | No | No |
+| Weather Alert (Iberian Storm) | No | No |
+| EnerLeafy AI Advisor | Yes | Yes |
+| Auditing (Event Replay) | No | Analysis only |
+| CQRS Explainer | No | No |
+| Architecture Diagram | No | No |
+
+The trading simulator runs entirely in-memory — no database needed for the core dashboard experience.
+
+## Stopping
 
 ```bash
 docker compose down
 ```
 
-## 5. Rebuild After Code Changes
+## Rebuilding After Changes
 
 ```bash
 docker compose up --build
@@ -65,39 +62,40 @@ docker compose up --build
 ## Architecture
 
 ```
-┌────────────────────┐      ┌────────────────────┐
-│  frontend:3000     │─────▶│  backend:8000      │
-│  Next.js 14        │ API  │  FastAPI            │
-│  LeafyGreen UI     │ proxy│  Trading Simulator  │
-└────────────────────┘      └────────┬───────────┘
-                                     │
-                            ┌────────▼───────────┐
-                            │  MongoDB Atlas     │
-                            │  (external)        │
-                            └────────────────────┘
+┌─────────────────────┐      ┌─────────────────────┐
+│  frontend           │      │  backend             │
+│  localhost:3000     │─────▶│  localhost:8000      │
+│                     │ /api │                       │
+│  Next.js 14        │proxy │  FastAPI              │
+│  LeafyGreen UI     │      │  Trading Simulator    │
+└─────────────────────┘      └──────────┬───────────┘
+                                        │
+                               ┌────────▼───────────┐
+                               │  MongoDB Atlas     │
+                               │  (your cluster)    │
+                               └────────────────────┘
 ```
 
-The frontend proxies `/api/*` requests to the backend container via Next.js rewrites. The `NEXT_PUBLIC_API_URL` environment variable controls the backend URL (defaults to `http://localhost:8000` for local dev, set to `http://backend:8000` in Docker).
+The frontend container proxies all `/api/*` requests to the backend container via Next.js rewrites. Both containers are on the same Docker network.
 
 ## Troubleshooting
 
-### Backend won't start
-- Check `deploy/.env` has a valid `MONGO_URI`
-- Check Docker logs: `docker compose logs backend`
+**Docker not found**: Make sure Docker Desktop is installed and running.
 
-### Frontend can't reach backend
-- Ensure the backend health check passes: `docker compose ps`
-- The frontend depends on the backend being healthy before it starts
+**Backend health check failing**: Check your `MONGO_URI` is correct. View logs:
+```bash
+docker compose logs backend
+```
 
-### LLM not responding
-- Verify `ANTHROPIC_API_KEY` or `AZURE_FOUNDRY_*` credentials in `deploy/.env`
-- Check backend logs: `docker compose logs backend`
+**AI advisor not responding**: Verify your `ANTHROPIC_API_KEY` starts with `sk-ant-`. View logs:
+```bash
+docker compose logs backend | grep -i "llm\|anthropic\|azure"
+```
 
-### Slow first build
-- The initial build downloads Python/Node dependencies. Subsequent builds use Docker layer caching and are much faster.
+**Port already in use**: Stop any local servers first:
+```bash
+lsof -ti :3000 | xargs kill 2>/dev/null
+lsof -ti :8000 | xargs kill 2>/dev/null
+```
 
-### Hot reload (development)
-- Docker builds are for production. For development with hot reload, use:
-  ```bash
-  ./start-demo.sh
-  ```
+**Slow first build**: Normal — downloads ~500MB of dependencies. Cached after first build.

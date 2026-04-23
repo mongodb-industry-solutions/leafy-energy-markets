@@ -8,7 +8,11 @@ RUN npm ci --legacy-peer-deps
 
 COPY . .
 
-# Build for production
+# Backend URL for API rewrites — set at build time
+ARG NEXT_PUBLIC_API_URL=http://backend:8000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+# Build for production (rewrites are baked into the build)
 RUN npm run build
 
 EXPOSE 3000

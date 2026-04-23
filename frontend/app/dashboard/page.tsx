@@ -62,7 +62,7 @@ interface PortfolioState {
   netGapMwh: number;
   gapType: string;
   realisedPnlEur: number;
-  unrealisedPnlEur: number;
+  fleetGenerationValueEur: number;
   dailyTargetEur: number;
   tradeLog: TradeRecord[];
 }
@@ -1070,7 +1070,7 @@ export default function DashboardPage() {
   if (!state) {
     return (
       <div className={css`display: flex; flex-direction: column; gap: 24px;`}>
-        <PageHeader title="Trading Dashboard" subtitle="European IPP — real-time fleet, position, and revenue monitoring" />
+        <PageHeader title="Trading Dashboard" subtitle="European IPP — European IPP — fleet output, position gap, and revenue capture" />
         <div className={css`display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 32px; gap: 16px; color: ${mutedColor};`}>
           <div className={css`font-size: 32px; animation: ${blink} 1.2s ease-in-out infinite;`}>⚡</div>
           <Body darkMode={darkMode}>Connecting to trading engine…</Body>
@@ -1108,7 +1108,7 @@ export default function DashboardPage() {
       {/* ── HEADER ── */}
       <PageHeader
         title="Trading Dashboard"
-        subtitle="European IPP — real-time fleet, position, and revenue monitoring"
+        subtitle="European IPP — European IPP — fleet output, position gap, and revenue capture"
         action={
           <div className={css`display: flex; align-items: center; gap: 10px;`}>
             {state.running && (
@@ -1203,9 +1203,10 @@ export default function DashboardPage() {
             <H3 darkMode={darkMode}>Revenue Tracker</H3>
           </div>
 
-          {/* Big realised number */}
-          <div className={css`margin-bottom: 16px; text-align: center; padding: 16px; border-radius: 10px; background: ${darkMode ? '#0d1a2d' : palette.gray.light3};`}>
-            <div className={css`font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: ${mutedColor}; margin-bottom: 4px;`}>Realised Revenue</div>
+          {/* Realised Revenue — from executed trades */}
+          <div className={css`margin-bottom: 14px; text-align: center; padding: 16px; border-radius: 10px; background: ${darkMode ? '#0d1a2d' : palette.gray.light3};`}>
+            <div className={css`font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: ${mutedColor}; margin-bottom: 4px;`}>Captured Revenue</div>
+            <div className={css`font-size: 11px; color: ${mutedColor}; margin-bottom: 6px;`}>Revenue from executed trades</div>
             <div className={css`font-size: 32px; font-weight: 800; color: ${portfolio.realisedPnlEur > 0 ? palette.green.base : portfolio.realisedPnlEur < 0 ? palette.red.base : textColor}; font-variant-numeric: tabular-nums;`}>
               €{fmt(portfolio.realisedPnlEur, 0)}
             </div>
@@ -1214,16 +1215,24 @@ export default function DashboardPage() {
                 <div className={css`height: 100%; width: ${realisedPct}%; background: ${pnlBarColor}; border-radius: 3px; transition: width 0.5s ease;`} />
               </div>
               <span className={css`font-size: 11px; font-weight: 700; color: ${pnlBarColor};`}>{realisedPct.toFixed(0)}%</span>
-              <span className={css`font-size: 10px; color: ${mutedColor};`}>of €{fmt(portfolio.dailyTargetEur, 0)}</span>
+              <span className={css`font-size: 10px; color: ${mutedColor};`}>of €{fmt(portfolio.dailyTargetEur, 0)} target</span>
+            </div>
+            <div className={css`font-size: 9px; color: ${mutedColor}; margin-top: 6px;`}>
+              Target = fleet capacity x avg utilisation (70%) x avg price x 8h window
             </div>
           </div>
 
-          {/* Unrealised */}
-          <div className={css`padding: 10px 14px; border-radius: 8px; background: ${darkMode ? '#060e1c' : palette.gray.light2}; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;`}>
-            <span className={css`font-size: 12px; color: ${mutedColor};`}>Unrealised Revenue</span>
-            <span className={css`font-size: 15px; font-weight: 700; color: ${portfolio.unrealisedPnlEur >= 0 ? palette.green.base : palette.red.base};`}>
-              {portfolio.unrealisedPnlEur >= 0 ? '+' : ''}€{fmt(portfolio.unrealisedPnlEur, 0)}
-            </span>
+          {/* Fleet Generation Value — hourly opportunity */}
+          <div className={css`padding: 12px 14px; border-radius: 8px; background: ${darkMode ? '#060e1c' : palette.gray.light2}; margin-bottom: 14px;`}>
+            <div className={css`display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;`}>
+              <span className={css`font-size: 12px; font-weight: 600; color: ${textColor};`}>Fleet Generation Value</span>
+              <span className={css`font-size: 17px; font-weight: 800; color: ${palette.green.base}; font-variant-numeric: tabular-nums;`}>
+                €{fmt(portfolio.fleetGenerationValueEur, 0)}<span className={css`font-size: 11px; font-weight: 500; color: ${mutedColor};`}>/hr</span>
+              </span>
+            </div>
+            <div className={css`font-size: 10px; color: ${mutedColor}; line-height: 1.5;`}>
+              Current fleet output x best market price — the revenue opportunity if all generation were sold now
+            </div>
           </div>
 
           {/* Revenue breakdown grouped by asset type */}
@@ -1271,7 +1280,7 @@ export default function DashboardPage() {
             );
           })() : (
             <div className={css`flex: 1; display: flex; align-items: center; justify-content: center; color: ${mutedColor}; font-size: 13px;`}>
-              Execute trades to see revenue breakdown
+              Allocate capacity and trade to capture revenue
             </div>
           )}
         </section>

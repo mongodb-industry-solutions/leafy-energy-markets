@@ -129,6 +129,12 @@ class TradingSimulator:
             })
             self._assets[asset["id"]] = asset
 
+        # Compute daily revenue target from fleet capacity:
+        # total capacity × avg utilisation (~70%) × avg price (~€72/MWh) × 8h trading window
+        total_capacity = sum(a["capacityMw"] for a in self._assets.values())
+        avg_price = (self._prices.get("dayAhead", 72.0) + self._prices.get("intraday", 74.5)) / 2
+        daily_target = round(total_capacity * 0.70 * avg_price * 8, 0)
+
         self._portfolio = {
             "allocationsByType": {
                 "wind":    {"targetMwh": 0.0, "marketChannel": "day_ahead",  "priceFloorEur": 0.0},
@@ -143,8 +149,8 @@ class TradingSimulator:
             "netGapMwh": 0.0,
             "gapType": "balanced",
             "realisedPnlEur": 0.0,
-            "unrealisedPnlEur": 0.0,
-            "dailyTargetEur": 76200.0,
+            "fleetGenerationValueEur": 0.0,
+            "dailyTargetEur": daily_target,
             "tradeLog": [],
         }
 
@@ -534,21 +540,21 @@ class TradingSimulator:
             by_type[a_type]["forecastMw"] += a["forecastOutputMw"]
             by_type[a_type]["assets"] += 1
 
-        da_price = self._prices["dayAhead"]
+        # Fleet generation value: current output × best available price × 1 hour
+        # Represents the hourly revenue opportunity if all output were sold now
+        best_price = max(self._prices["dayAhead"], self._prices["intraday"], self._prices["flexibility"])
         breakdown = {}
         for a_type, data in by_type.items():
-            estimated_rev = data["outputMw"] * da_price * 0.25  # 15-min proxy
+            hourly_value = data["outputMw"] * best_price  # €/hour at best price
             breakdown[a_type] = {
                 "outputMw": round(data["outputMw"], 2),
                 "forecastMw": round(data["forecastMw"], 2),
-                "estimatedRevenueEur": round(estimated_rev, 2),
+                "hourlyValueEur": round(hourly_value, 2),
                 "assets": data["assets"],
             }
 
-        unrealised = sum(
-            v["estimatedRevenueEur"] for v in breakdown.values()
-        )
-        self._portfolio["unrealisedPnlEur"] = round(unrealised, 2)
+        fleet_gen_value = round(sum(v["hourlyValueEur"] for v in breakdown.values()), 2)
+        self._portfolio["fleetGenerationValueEur"] = fleet_gen_value
 
         return {
             "id": str(uuid.uuid4()),
@@ -558,13 +564,13 @@ class TradingSimulator:
             "timestamp": now.isoformat(),
             "payload": {
                 "realisedPnlEur": self._portfolio["realisedPnlEur"],
-                "unrealisedPnlEur": round(unrealised, 2),
+                "fleetGenerationValueEur": fleet_gen_value,
                 "dailyTargetEur": self._portfolio["dailyTargetEur"],
                 "progressPct": round(
                     (self._portfolio["realisedPnlEur"] / self._portfolio["dailyTargetEur"]) * 100, 1
                 ) if self._portfolio["dailyTargetEur"] else 0,
                 "byAssetType": breakdown,
-                "dayAheadPriceEurMwh": da_price,
+                "bestPriceEurMwh": best_price,
             },
         }
 

@@ -1,3 +1,4 @@
+from app.infrastructure.db import DB_NAME
 from pymongo import MongoClient
 from pymongo.change_stream import ChangeStream
 import os
@@ -9,7 +10,7 @@ def project_tariff_scenarios():
     A simple projection that listens for events and updates a read model.
     """
     client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
-    db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+    db_name = DB_NAME
     db = client[db_name]
     
     events_collection = db.events

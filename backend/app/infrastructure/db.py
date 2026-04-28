@@ -6,6 +6,8 @@ from pymongo.errors import ConnectionFailure
 
 logger = logging.getLogger(__name__)
 
+DB_NAME = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+
 _client: MongoClient | None = None
 
 # Atlas connection-pool best practices:

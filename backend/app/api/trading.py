@@ -19,13 +19,16 @@ from collections import deque
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+import logging
 import os
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.infrastructure.db import get_db
+from app.infrastructure.db import get_db, DB_NAME
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Router
@@ -80,6 +83,7 @@ class TradingSimulator:
         self._dismissed_alerts: set[str] = set()
         self._db = None  # MongoDB database reference (set on start)
         self._persist_errors: int = 0
+        self._persist_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -253,9 +257,10 @@ class TradingSimulator:
         for ev in reversed(events_this_tick):
             self._recent_events.appendleft(ev)
 
-        # 10. Persist to MongoDB (non-blocking, fail-safe)
+        # 10. Persist to MongoDB (non-blocking, skip if previous write still running)
         if events_this_tick and self._db is not None:
-            asyncio.create_task(self._persist_events(events_this_tick))
+            if self._persist_task is None or self._persist_task.done():
+                self._persist_task = asyncio.create_task(self._persist_events(events_this_tick))
 
     # ------------------------------------------------------------------
     # MongoDB persistence (async, non-blocking)
@@ -280,13 +285,9 @@ class TradingSimulator:
         except Exception:
             self._persist_errors += 1
             if self._persist_errors <= 3:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Failed to persist %d trading events to MongoDB (attempt %d)",
-                    len(events), self._persist_errors,
-                )
-            # After 10 consecutive failures, stop trying (MongoDB probably unreachable)
+                logger.warning("Failed to persist %d trading events (attempt %d)", len(events), self._persist_errors)
             if self._persist_errors >= 10:
+                logger.warning("MongoDB persistence disabled after %d failures", self._persist_errors)
                 self._db = None
 
     # ------------------------------------------------------------------
@@ -771,11 +772,7 @@ async def get_trading_state() -> dict:
 
 @router.post("/trading/start")
 async def start_trading(client=Depends(get_db)) -> dict:
-    db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
-    try:
-        db = client[db_name]
-    except Exception:
-        db = None
+    db = client[DB_NAME]
     simulator.start(db=db)
     return {"status": "started", "persistence": "mongodb" if db is not None else "in-memory"}
 

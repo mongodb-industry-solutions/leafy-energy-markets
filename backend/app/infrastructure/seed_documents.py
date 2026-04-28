@@ -262,7 +262,7 @@ DOCUMENTS = [
     },
 ]
 
-DB_NAME = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+from app.infrastructure.db import DB_NAME
 COLLECTION = "documents"
 INDEX_NAME = "vector_index"
 

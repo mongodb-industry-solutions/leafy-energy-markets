@@ -29,7 +29,7 @@ CSV_PATH = os.path.join(
     'IEA_PAMS_Export 2_26_2026, 3_18_26 PM.csv',
 )
 
-DB_NAME = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+from app.infrastructure.db import DB_NAME
 COLLECTION = "documents"
 
 # Countries relevant to the demo's European energy market focus

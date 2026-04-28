@@ -59,6 +59,7 @@ function LeafyContent() {
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   const [reasoningText, setReasoningText] = useState('');
   const [reasoningCollapsed, setReasoningCollapsed] = useState(false);
+  const messagesRef = useRef<ChatMessage[]>([]);
 
   // Typewriter: full received text lives in a ref; a 16ms interval drips it into the message
   const tokenAccumRef = useRef('');
@@ -94,6 +95,9 @@ function LeafyContent() {
     }, 16);
     return () => clearInterval(id);
   }, [streamingMsgId]);
+
+  // Keep ref in sync for sendMessage callback
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   // Initialise client-side only to avoid SSR/client hydration mismatch
   const [sessionId, setSessionId] = useState('');
@@ -149,7 +153,7 @@ function LeafyContent() {
       { context: 'weather_and_performance_events', events: recentEvents },
     ];
 
-    const chatHistory = messages
+    const chatHistory = messagesRef.current
       .slice(-6)
       .map((m) => ({ role: m.role, content: m.content }));
 
@@ -257,7 +261,7 @@ function LeafyContent() {
     } finally {
       setIsTyping(false);
     }
-  }, [messages, serverSessionId, sessionId]);
+  }, [serverSessionId, sessionId]);
 
   const handlePromptSelect = useCallback(
     (prompt: string) => { sendMessage(prompt); },

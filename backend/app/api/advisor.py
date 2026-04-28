@@ -113,7 +113,7 @@ def _llm_configured() -> bool:
 
 router = APIRouter()
 
-DB_NAME = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+from app.infrastructure.db import DB_NAME
 COLLECTION = "documents"
 
 

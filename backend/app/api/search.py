@@ -12,7 +12,7 @@ from app.infrastructure.search import vector_search, text_search
 
 router = APIRouter()
 
-DB_NAME = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+from app.infrastructure.db import DB_NAME
 COLLECTION = "documents"
 
 

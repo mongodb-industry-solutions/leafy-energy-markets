@@ -1070,7 +1070,7 @@ export default function DashboardPage() {
   if (!state) {
     return (
       <div className={css`display: flex; flex-direction: column; gap: 24px;`}>
-        <PageHeader title="Trading Dashboard" subtitle="European IPP — European IPP — fleet output, position gap, and revenue capture" />
+        <PageHeader title="Trading Dashboard" subtitle="European IPP — fleet output, position gap, and revenue capture" />
         <div className={css`display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 32px; gap: 16px; color: ${mutedColor};`}>
           <div className={css`font-size: 32px; animation: ${blink} 1.2s ease-in-out infinite;`}>⚡</div>
           <Body darkMode={darkMode}>Connecting to trading engine…</Body>
@@ -1108,7 +1108,7 @@ export default function DashboardPage() {
       {/* ── HEADER ── */}
       <PageHeader
         title="Trading Dashboard"
-        subtitle="European IPP — European IPP — fleet output, position gap, and revenue capture"
+        subtitle="European IPP — fleet output, position gap, and revenue capture"
         action={
           <div className={css`display: flex; align-items: center; gap: 10px;`}>
             {state.running && (
@@ -1217,7 +1217,7 @@ export default function DashboardPage() {
               <span className={css`font-size: 11px; font-weight: 700; color: ${pnlBarColor};`}>{realisedPct.toFixed(0)}%</span>
               <span className={css`font-size: 10px; color: ${mutedColor};`}>of €{fmt(portfolio.dailyTargetEur, 0)} target</span>
             </div>
-            <div className={css`font-size: 9px; color: ${mutedColor}; margin-top: 6px;`}>
+            <div className={css`font-size: 10px; color: ${mutedColor}; margin-top: 6px;`}>
               Target = fleet capacity x avg utilisation (70%) x avg price x 8h window
             </div>
           </div>

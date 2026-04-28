@@ -3,13 +3,13 @@ from pymongo import MongoClient
 
 from app.domain.aggregates import TariffScenario, Instrument
 from app.infrastructure.event_store import EventStore
-from app.infrastructure.db import get_db
+from app.infrastructure.db import get_db, DB_NAME
 
 router = APIRouter()
 
 @router.get("/tariff-scenarios/{scenario_id}")
 async def get_tariff_scenario(scenario_id: str, client: MongoClient = Depends(get_db)):
-    db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+    db_name = DB_NAME
     db = client[db_name]
     scenarios_collection = db.tariff_scenarios
 

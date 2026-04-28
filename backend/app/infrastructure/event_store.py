@@ -1,3 +1,4 @@
+from app.infrastructure.db import DB_NAME
 from pymongo import MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from typing import Generic, Type, TypeVar
@@ -11,7 +12,7 @@ A = TypeVar('A', bound=Aggregate)
 
 class EventStore(Generic[A]):
     def __init__(self, client: MongoClient, aggregate_type: Type[A]):
-        db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+        db_name = DB_NAME
         self.db = client[db_name]
         self.events_collection = self.db.events
         self.aggregate_type = aggregate_type

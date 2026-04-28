@@ -57,8 +57,8 @@ class TelemetryLoadGenerator:
 
     def _get_collection(self):
         if self._client is None:
-            from app.infrastructure.db import get_client
-            db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+            from app.infrastructure.db import get_client, DB_NAME
+            db_name = DB_NAME
             self._client = get_client()
             db = self._client[db_name]
 
@@ -271,8 +271,8 @@ async def ingest_events(batch: EventBatch):
     if not batch.events:
         return {"inserted": 0}
     try:
-        from app.infrastructure.db import get_client
-        db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+        from app.infrastructure.db import get_client, DB_NAME
+        db_name = DB_NAME
         client = get_client()
         db = client[db_name]
 

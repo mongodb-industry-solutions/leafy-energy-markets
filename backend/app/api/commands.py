@@ -14,7 +14,7 @@ from app.domain.events import (
 )
 from app.domain.aggregates import TariffScenario, Instrument
 from app.infrastructure.event_store import EventStore
-from app.infrastructure.db import get_db
+from app.infrastructure.db import get_db, DB_NAME
 
 router = APIRouter()
 
@@ -53,7 +53,7 @@ async def seed_demo_scenario(client: MongoClient = Depends(get_db)):
     Creates a realistic imbalance settlement scenario with multiple events
     for demonstrating fold() replay in the Event Inspector.
     """
-    db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+    db_name = DB_NAME
     db = client[db_name]
     events_col = db.events
 

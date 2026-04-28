@@ -19,9 +19,13 @@ from collections import deque
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from fastapi import APIRouter
+import os
+
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from app.infrastructure.db import get_db
 
 # ---------------------------------------------------------------------------
 # Router
@@ -74,14 +78,18 @@ class TradingSimulator:
         self._last_pnl_snapshot: datetime = datetime.min.replace(tzinfo=timezone.utc)
         self._asset_rotation_idx: int = 0
         self._dismissed_alerts: set[str] = set()
+        self._db = None  # MongoDB database reference (set on start)
+        self._persist_errors: int = 0
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self) -> None:
+    def start(self, db=None) -> None:
         if self._running:
             return
+        self._db = db
+        self._persist_errors = 0
         self._init_state()
         self._running = True
         self._task = asyncio.create_task(self._tick_loop())
@@ -244,6 +252,42 @@ class TradingSimulator:
         # 9. Push events to deque (most recent first)
         for ev in reversed(events_this_tick):
             self._recent_events.appendleft(ev)
+
+        # 10. Persist to MongoDB (non-blocking, fail-safe)
+        if events_this_tick and self._db is not None:
+            asyncio.create_task(self._persist_events(events_this_tick))
+
+    # ------------------------------------------------------------------
+    # MongoDB persistence (async, non-blocking)
+    # ------------------------------------------------------------------
+
+    async def _persist_events(self, events: list[dict]) -> None:
+        """Batch-insert trading events to MongoDB. Fails silently — never blocks the simulator."""
+        try:
+            docs = [
+                {
+                    "streamId": ev.get("streamId", "PORTFOLIO-001"),
+                    "streamType": ev.get("streamType", "TradingPosition"),
+                    "eventType": ev["eventType"],
+                    "timestamp": datetime.fromisoformat(ev["timestamp"]) if isinstance(ev.get("timestamp"), str) else ev.get("timestamp", datetime.now(timezone.utc)),
+                    "payload": ev.get("payload", {}),
+                    "metadata": {"source": "trading-simulator", "schemaVersion": 1},
+                }
+                for ev in events
+            ]
+            await asyncio.to_thread(self._db["trading_events"].insert_many, docs, ordered=False)
+            self._persist_errors = 0  # reset on success
+        except Exception:
+            self._persist_errors += 1
+            if self._persist_errors <= 3:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Failed to persist %d trading events to MongoDB (attempt %d)",
+                    len(events), self._persist_errors,
+                )
+            # After 10 consecutive failures, stop trying (MongoDB probably unreachable)
+            if self._persist_errors >= 10:
+                self._db = None
 
     # ------------------------------------------------------------------
     # Gap computation
@@ -591,6 +635,7 @@ class TradingSimulator:
             "alerts": active_alerts,
             "recentEvents": list(self._recent_events)[:20],
             "running": self._running,
+            "persistence": "mongodb" if self._db is not None else "in-memory",
             "lastUpdated": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -725,9 +770,14 @@ async def get_trading_state() -> dict:
 
 
 @router.post("/trading/start")
-async def start_trading() -> dict:
-    simulator.start()
-    return {"status": "started"}
+async def start_trading(client=Depends(get_db)) -> dict:
+    db_name = os.getenv("MONGO_DB_NAME", "leafy-energy-markets")
+    try:
+        db = client[db_name]
+    except Exception:
+        db = None
+    simulator.start(db=db)
+    return {"status": "started", "persistence": "mongodb" if db is not None else "in-memory"}
 
 
 @router.post("/trading/stop")

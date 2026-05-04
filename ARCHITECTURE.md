@@ -113,14 +113,18 @@
 │                                                                                       │
 │   ┌─────────────────┐ ┌──────────────────┐ ┌──────────────────┐ ┌─────────────────┐  │
 │   │ events          │ │ trading_events   │ │ market_documents │ │ advisor_        │  │
-│   │                 │ │                  │ │                  │ │ interactions    │  │
-│   │ Append-only     │ │ From simulator   │ │ 200+ IEA/EU      │ │ Agent memory    │  │
-│   │ CQRS event store│ │ 9 event types    │ │ policy docs      │ │ MongoDBSaver    │  │
-│   │                 │ │ ~3-6 events/s    │ │ voyage-finance-2 │ │ checkpoints     │  │
-│   │ Unique index:   │ │                  │ │ 1024-dim vectors │ │                 │  │
-│   │ {streamId,      │ │ insert_many()    │ │                  │ │ Query + tool    │  │
-│   │  version}       │ │ ordered=false    │ │ Atlas Vector     │ │ call logs       │  │
-│   │                 │ │                  │ │ Search index     │ │                 │  │
+│   │                 │ │ ⏱ TIME SERIES    │ │                  │ │ interactions    │  │
+│   │ Append-only     │ │                  │ │ 200+ IEA/EU      │ │ Agent memory    │  │
+│   │ CQRS event store│ │ timeField:       │ │ policy docs      │ │ MongoDBSaver    │  │
+│   │                 │ │   timestamp      │ │ voyage-finance-2 │ │ checkpoints     │  │
+│   │ Unique index:   │ │ metaField:       │ │ 1024-dim vectors │ │                 │  │
+│   │ {streamId,      │ │   streamType     │ │                  │ │ Query + tool    │  │
+│   │  version}       │ │ granularity:     │ │ Atlas Vector     │ │ call logs       │  │
+│   │                 │ │   seconds        │ │ Search index     │ │                 │  │
+│   │ Standard coll.  │ │ TTL: 7 days      │ │                  │ │                 │  │
+│   │ (needs unique   │ │ ~3-6 events/s    │ │ Standard coll.   │ │ Standard coll.  │  │
+│   │  index for      │ │ 10-20x compress. │ │                  │ │                 │  │
+│   │  concurrency)   │ │ 9 event types    │ │                  │ │                 │  │
 │   └────────┬────────┘ └──────────────────┘ └──────────────────┘ └─────────────────┘  │
 │            │                                                                          │
 │   ┌────────▼────────┐ ┌──────────────────┐ ┌──────────────────┐                      │
@@ -167,7 +171,11 @@ PATTERN 1: Real-Time Trading (SSE)
      └── POST /allocations ──► apply_allocation() ──► TradeExecuted │
                                        │                            ▼
                                        │                    trading_events
-                                       └── reset alloc ──► (MongoDB collection)
+                                       └── reset alloc ──► (⏱ Time Series collection)
+                                                            timeField: timestamp
+                                                            metaField: streamType
+                                                            granularity: seconds
+                                                            TTL: 7 days auto-expiry
 
 
 PATTERN 2: AI Advisor (LangChain ReAct)

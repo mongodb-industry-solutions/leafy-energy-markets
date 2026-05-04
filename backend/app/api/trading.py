@@ -94,9 +94,30 @@ class TradingSimulator:
             return
         self._db = db
         self._persist_errors = 0
+        if db is not None:
+            self._ensure_timeseries_collection(db)
         self._init_state()
         self._running = True
         self._task = asyncio.create_task(self._tick_loop())
+
+    @staticmethod
+    def _ensure_timeseries_collection(db) -> None:
+        """Create trading_events as a time series collection if it doesn't exist."""
+        if "trading_events" in db.list_collection_names():
+            return
+        try:
+            db.create_collection(
+                "trading_events",
+                timeseries={
+                    "timeField": "timestamp",
+                    "metaField": "streamType",
+                    "granularity": "seconds",
+                },
+                expireAfterSeconds=86400 * 7,  # auto-delete after 7 days
+            )
+            logger.info("Created trading_events time series collection (7-day TTL)")
+        except Exception as e:
+            logger.warning("Could not create time series collection: %s (will use regular)", e)
 
     async def stop(self) -> None:
         self._running = False

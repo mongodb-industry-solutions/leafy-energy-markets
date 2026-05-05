@@ -233,18 +233,16 @@ export default function TelemetryPage() {
       .catch(() => {});
   }, []);
 
-  // SSE connection — try Change Stream first, fall back to trading/stream
-  const [source, setSource] = useState<'change-stream' | 'simulator'>('change-stream');
+  // SSE connection — use trading/stream (always works) and extract recentEvents
+  // Change Stream requires MongoDB; trading/stream works from in-memory simulator
+  const [source] = useState<'simulator'>('simulator');
 
   useEffect(() => {
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
-    let gotFirstEvent = false;
 
     const processEvent = (event: TradingEvent) => {
-      gotFirstEvent = true;
       setEvents(prev => [event, ...prev].slice(0, 200));
       const now = Date.now();
       const key = event.streamId;
@@ -256,57 +254,27 @@ export default function TelemetryPage() {
       });
     };
 
-    const connectChangeStream = () => {
+    const connect = () => {
       if (disposed) return;
-      const params = new URLSearchParams();
-      if (filterStreamType) params.set('stream_type', filterStreamType);
-      if (filterEventType) params.set('event_type', filterEventType);
-
-      es = new EventSource(`/api/trading/change-stream?${params}`);
-      es.onopen = () => { setConnected(true); setError(null); };
-      es.onmessage = (e) => {
-        try {
-          const doc = JSON.parse(e.data);
-          if (doc.type === 'error') { setError(doc.message); return; }
-          processEvent(doc);
-        } catch { /* malformed */ }
-      };
-      es.onerror = () => {
-        es?.close();
-        setConnected(false);
-        if (!disposed) {
-          // Fall back to simulator SSE if Change Stream never delivered
-          if (!gotFirstEvent) {
-            setSource('simulator');
-            connectSimulator();
-          } else {
-            reconnectTimer = setTimeout(connectChangeStream, 2000);
-          }
-        }
-      };
-      // If no events after 5s, fall back to simulator SSE
-      fallbackTimer = setTimeout(() => {
-        if (!gotFirstEvent && !disposed) {
-          es?.close();
-          setSource('simulator');
-          connectSimulator();
-        }
-      }, 5000);
-    };
-
-    const connectSimulator = () => {
-      if (disposed) return;
-      seenEventIds.current = new Set(); // reset dedup on source switch
+      seenEventIds.current = new Set();
       let firstMessage = true;
+
       es = new EventSource('/api/trading/stream');
       es.onopen = () => { setConnected(true); setError(null); };
       es.onmessage = (e) => {
         try {
           const state = JSON.parse(e.data);
-          // On first message: load all recent events. After that: only new ones.
-          const recentEvents: TradingEvent[] = (state.recentEvents ?? []);
-          const batch = firstMessage ? recentEvents : recentEvents.slice(0, 5);
+          const allEvents: TradingEvent[] = (state.recentEvents ?? []);
+
+          // Apply filters client-side
+          let filtered = allEvents;
+          if (filterStreamType) filtered = filtered.filter(ev => ev.streamType === filterStreamType);
+          if (filterEventType) filtered = filtered.filter(ev => ev.eventType === filterEventType);
+
+          // First message: load all. Subsequent: only new (deduped by id).
+          const batch = firstMessage ? filtered : filtered.slice(0, 8);
           firstMessage = false;
+
           for (const ev of batch) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const evId = (ev as any).id ?? `${ev.eventType}-${ev.timestamp}`;
@@ -329,16 +297,15 @@ export default function TelemetryPage() {
       es.onerror = () => {
         es?.close();
         setConnected(false);
-        if (!disposed) reconnectTimer = setTimeout(connectSimulator, 2000);
+        if (!disposed) reconnectTimer = setTimeout(connect, 2000);
       };
     };
 
-    connectChangeStream();
+    connect();
 
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (fallbackTimer) clearTimeout(fallbackTimer);
       es?.close();
     };
   }, [filterStreamType, filterEventType]);
@@ -379,7 +346,7 @@ export default function TelemetryPage() {
       {/* Status bar */}
       <div className={css`display: flex; align-items: center; gap: 12px; flex-wrap: wrap;`}>
         <Badge variant={connected ? 'green' : 'yellow'}>
-          {connected ? (source === 'change-stream' ? 'Change Stream' : 'Simulator SSE') : 'Reconnecting...'}
+          {connected ? 'Live · SSE' : 'Reconnecting...'}
         </Badge>
         <span className={css`font-size: 12px; color: ${textColor};`}>
           {events.length} events received · {totalEventsPerSec.toFixed(1)} events/sec
@@ -436,7 +403,7 @@ export default function TelemetryPage() {
           <div className={css`display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;`}>
             <H3 darkMode={darkMode}>Live Event Feed</H3>
             <span className={css`font-size: 11px; color: ${mutedColor};`}>
-              {source === 'change-stream' ? 'MongoDB Change Stream → SSE → Browser' : 'Trading Simulator → SSE → Browser'}
+              Simulator → SSE → Browser (persisted to MongoDB Time Series)
             </span>
           </div>
 

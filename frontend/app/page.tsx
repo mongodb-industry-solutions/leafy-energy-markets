@@ -96,9 +96,12 @@ export default function Home() {
   ).join('<span style="color:#223;margin:0 20px">&middot;</span>');
 
   return (
+    <>
+    {/* Google Fonts — must be outside emotion css */}
+    {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700;800&display=swap" />
     <div
       className={css`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700;800&display=swap');
         min-height: 100vh;
         background: #050a08;
         color: #e0e4e8;
@@ -454,5 +457,6 @@ export default function Home() {
         <span>LeafyGreen UI</span>
       </div>
     </div>
+    </>
   );
 }

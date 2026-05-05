@@ -296,22 +296,24 @@ export default function TelemetryPage() {
 
     const connectSimulator = () => {
       if (disposed) return;
+      seenEventIds.current = new Set(); // reset dedup on source switch
+      let firstMessage = true;
       es = new EventSource('/api/trading/stream');
       es.onopen = () => { setConnected(true); setError(null); };
       es.onmessage = (e) => {
         try {
           const state = JSON.parse(e.data);
-          // Extract recent events from the simulator state
-          const recentEvents: TradingEvent[] = (state.recentEvents ?? []).slice(0, 10);
-          for (const ev of recentEvents) {
+          // On first message: load all recent events. After that: only new ones.
+          const recentEvents: TradingEvent[] = (state.recentEvents ?? []);
+          const batch = firstMessage ? recentEvents : recentEvents.slice(0, 5);
+          firstMessage = false;
+          for (const ev of batch) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const evId = (ev as any).id ?? `${ev.eventType}-${ev.timestamp}`;
             if (ev.eventType && ev.timestamp && !seenEventIds.current.has(evId)) {
               seenEventIds.current.add(evId);
-              // Keep set bounded
               if (seenEventIds.current.size > 500) {
-                const arr = Array.from(seenEventIds.current);
-                seenEventIds.current = new Set(arr.slice(-300));
+                seenEventIds.current = new Set(Array.from(seenEventIds.current).slice(-300));
               }
               processEvent({
                 streamId: ev.streamId ?? 'UNKNOWN',

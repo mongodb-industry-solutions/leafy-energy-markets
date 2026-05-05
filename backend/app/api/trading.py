@@ -927,3 +927,232 @@ async def get_alerts() -> list:
 @router.get("/trading/events")
 async def get_events() -> list:
     return list(simulator._recent_events)[:30]
+
+
+# ---------------------------------------------------------------------------
+# Event Schemas — static reference for the 9 event types
+# ---------------------------------------------------------------------------
+
+EVENT_SCHEMAS = {
+    "MeterReadingRecorded": {
+        "streamType": "AssetTelemetry",
+        "description": "Per-asset output reading with forecast comparison",
+        "payloadFields": [
+            {"name": "assetId", "type": "string", "description": "Asset identifier (e.g. ASSET-WIND-NL-001)"},
+            {"name": "assetType", "type": "string", "description": "wind | solar | hydro | gas | battery | biomass"},
+            {"name": "assetName", "type": "string", "description": "Human-readable asset name"},
+            {"name": "region", "type": "string", "description": "ISO country code (NL, UK, ES, PT, NO, DE, FR)"},
+            {"name": "readingKwh", "type": "float", "description": "Energy reading in kWh for the interval"},
+            {"name": "currentOutputMw", "type": "float", "description": "Current output in MW"},
+            {"name": "forecastOutputMw", "type": "float", "description": "Forecast output in MW"},
+            {"name": "varianceMw", "type": "float", "description": "Actual minus forecast (MW)"},
+            {"name": "capacityMw", "type": "float", "description": "Nameplate capacity in MW"},
+            {"name": "utilizationPct", "type": "float", "description": "Current utilization percentage"},
+            {"name": "status", "type": "string", "description": "online | curtailed | offline"},
+            {"name": "quality", "type": "string", "description": "good | questionable"},
+            {"name": "sensorStatus", "type": "string", "description": "ok | degraded | failed"},
+        ],
+    },
+    "PerformanceVarianceDetected": {
+        "streamType": "AssetTelemetry",
+        "description": "Flags when actual vs forecast exceeds 10% of capacity",
+        "payloadFields": [
+            {"name": "assetId", "type": "string", "description": "Asset identifier"},
+            {"name": "assetType", "type": "string", "description": "Asset type"},
+            {"name": "assetName", "type": "string", "description": "Human-readable asset name"},
+            {"name": "region", "type": "string", "description": "ISO country code"},
+            {"name": "actualMw", "type": "float", "description": "Actual output MW"},
+            {"name": "forecastMw", "type": "float", "description": "Forecast output MW"},
+            {"name": "varianceMw", "type": "float", "description": "Variance in MW"},
+            {"name": "variancePct", "type": "float", "description": "Variance as % of capacity"},
+            {"name": "capacityMw", "type": "float", "description": "Nameplate capacity"},
+            {"name": "severity", "type": "string", "description": "info | warning"},
+        ],
+    },
+    "WindForecastUpdated": {
+        "streamType": "WeatherForecast",
+        "description": "Updated wind forecast from ECMWF for a wind asset",
+        "payloadFields": [
+            {"name": "assetId", "type": "string", "description": "Affected wind asset ID"},
+            {"name": "region", "type": "string", "description": "ISO country code"},
+            {"name": "forecastDeltaPct", "type": "float", "description": "Change in forecast (%)"},
+            {"name": "updatedForecastMw", "type": "float", "description": "New forecast MW"},
+            {"name": "previousForecastMw", "type": "float", "description": "Previous forecast MW"},
+            {"name": "windSpeedMs", "type": "float", "description": "Wind speed in m/s"},
+            {"name": "source", "type": "string", "description": "Forecast source (ECMWF)"},
+        ],
+    },
+    "SolarIrradianceForecastUpdated": {
+        "streamType": "WeatherForecast",
+        "description": "Updated solar irradiance forecast for a solar asset",
+        "payloadFields": [
+            {"name": "assetId", "type": "string", "description": "Affected solar asset ID"},
+            {"name": "region", "type": "string", "description": "ISO country code"},
+            {"name": "forecastDeltaPct", "type": "float", "description": "Change in forecast (%)"},
+            {"name": "updatedForecastMw", "type": "float", "description": "New forecast MW"},
+            {"name": "previousForecastMw", "type": "float", "description": "Previous forecast MW"},
+            {"name": "irradianceWm2", "type": "float", "description": "Solar irradiance W/m²"},
+            {"name": "cloudCoverPct", "type": "float", "description": "Cloud cover percentage"},
+            {"name": "source", "type": "string", "description": "Forecast source (SolarEdge-NWP)"},
+        ],
+    },
+    "WeatherAlertIssued": {
+        "streamType": "WeatherForecast",
+        "description": "Severe weather alert for a region",
+        "payloadFields": [
+            {"name": "region", "type": "string", "description": "Affected region code"},
+            {"name": "severity", "type": "string", "description": "advisory | warning | critical"},
+            {"name": "curtailmentRequired", "type": "boolean", "description": "Whether generation curtailment is needed"},
+            {"name": "description", "type": "string", "description": "Human-readable alert description"},
+            {"name": "validUntil", "type": "string", "description": "ISO datetime when alert expires"},
+        ],
+    },
+    "PositionGapDetected": {
+        "streamType": "TradingPosition",
+        "description": "Portfolio position gap exceeds threshold",
+        "payloadFields": [
+            {"name": "committedMwh", "type": "float", "description": "Total committed MWh"},
+            {"name": "forecastMwh", "type": "float", "description": "Total forecast MWh"},
+            {"name": "gapMwh", "type": "float", "description": "Gap in MWh (forecast - committed)"},
+            {"name": "gapType", "type": "string", "description": "surplus | shortfall | balanced"},
+            {"name": "severity", "type": "string", "description": "info | warning | critical"},
+            {"name": "recommendedAction", "type": "string", "description": "Suggested trader action"},
+            {"name": "bestAvailablePriceEurMwh", "type": "float", "description": "Best channel price"},
+            {"name": "estimatedImpactEur", "type": "float", "description": "Estimated financial impact"},
+        ],
+    },
+    "TradeExecuted": {
+        "streamType": "TradingPosition",
+        "description": "A trade was executed on a market channel",
+        "payloadFields": [
+            {"name": "tradeId", "type": "string", "description": "Unique trade identifier"},
+            {"name": "side", "type": "string", "description": "buy | sell"},
+            {"name": "quantityMwh", "type": "float", "description": "Trade quantity in MWh"},
+            {"name": "priceEurMwh", "type": "float", "description": "Execution price EUR/MWh"},
+            {"name": "revenueEur", "type": "float", "description": "Trade revenue in EUR"},
+            {"name": "marketChannel", "type": "string", "description": "dayAhead | intraday | flexibility"},
+            {"name": "executionType", "type": "string", "description": "manual | algorithmic"},
+            {"name": "counterparty", "type": "string", "description": "Counterparty exchange ID"},
+        ],
+    },
+    "PnlSnapshotRecorded": {
+        "streamType": "TradingPosition",
+        "description": "Periodic revenue snapshot with per-asset-type breakdown",
+        "payloadFields": [
+            {"name": "realisedPnlEur", "type": "float", "description": "Total captured revenue EUR"},
+            {"name": "fleetGenerationValueEur", "type": "float", "description": "Hourly fleet value EUR"},
+            {"name": "dailyTargetEur", "type": "float", "description": "Daily revenue target EUR"},
+            {"name": "progressPct", "type": "float", "description": "Progress toward daily target (%)"},
+            {"name": "byAssetType", "type": "object", "description": "Per-type breakdown (outputMw, forecastMw, hourlyValueEur)"},
+            {"name": "bestPriceEurMwh", "type": "float", "description": "Best available channel price"},
+        ],
+    },
+    "CapacityAllocationSet": {
+        "streamType": "TradingPosition",
+        "description": "Trader set capacity allocation for an asset type",
+        "payloadFields": [
+            {"name": "assetType", "type": "string", "description": "Asset type allocated"},
+            {"name": "targetMwh", "type": "float", "description": "Target allocation in MWh"},
+            {"name": "marketChannel", "type": "string", "description": "Selected market channel"},
+            {"name": "priceFloorEur", "type": "float", "description": "Minimum acceptable price"},
+            {"name": "currentPriceEurMwh", "type": "float", "description": "Channel price at allocation time"},
+            {"name": "updatedCommittedMwh", "type": "float", "description": "New total committed MWh"},
+            {"name": "updatedGapMwh", "type": "float", "description": "New position gap MWh"},
+            {"name": "gapType", "type": "string", "description": "surplus | shortfall | balanced"},
+        ],
+    },
+}
+
+
+@router.get("/trading/event-schemas")
+async def get_event_schemas() -> dict:
+    """Return schema definitions for all 9 trading event types."""
+    return EVENT_SCHEMAS
+
+
+# ---------------------------------------------------------------------------
+# Change Stream SSE — live events from MongoDB trading_events collection
+# ---------------------------------------------------------------------------
+
+import queue
+import threading
+import time as _time
+
+
+def _watch_loop(
+    pipeline: list,
+    q: "queue.Queue[dict]",
+    stop_event: threading.Event,
+) -> None:
+    """Background thread: opens a Change Stream on trading_events and pushes documents to the queue."""
+    from app.infrastructure.db import get_client, DB_NAME as _DB_NAME
+    try:
+        client = get_client()
+        coll = client[_DB_NAME]["trading_events"]
+    except Exception as exc:
+        q.put({"_error": f"Cannot connect to MongoDB: {exc}"})
+        return
+
+    while not stop_event.is_set():
+        try:
+            with coll.watch(pipeline, full_document="updateLookup") as cursor:
+                for change in cursor:
+                    if stop_event.is_set():
+                        break
+                    doc = change.get("fullDocument")
+                    if doc:
+                        doc.pop("_id", None)
+                        q.put(doc)
+        except Exception as exc:
+            if not stop_event.is_set():
+                q.put({"_error": str(exc)})
+                stop_event.wait(5.0)
+
+
+@router.get("/trading/change-stream")
+async def trading_change_stream(
+    stream_type: str | None = None,
+    event_type: str | None = None,
+):
+    """SSE: streams live trading events from MongoDB Change Stream on the trading_events time series collection."""
+
+    # Build Change Stream pipeline
+    match_filter: dict = {"operationType": "insert"}
+    if stream_type:
+        match_filter["fullDocument.streamType"] = stream_type
+    if event_type:
+        match_filter["fullDocument.eventType"] = event_type
+    pipeline = [{"$match": match_filter}]
+
+    q: queue.Queue[dict] = queue.Queue(maxsize=256)
+    stop_event = threading.Event()
+
+    async def generate():
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, _watch_loop, pipeline, q, stop_event)
+        last_event_time = _time.monotonic()
+
+        try:
+            while True:
+                try:
+                    doc = await asyncio.to_thread(q.get, True, 1.0)
+                    if "_error" in doc:
+                        yield f"data: {json.dumps({'type': 'error', 'message': doc['_error']})}\n\n"
+                    else:
+                        yield f"data: {json.dumps(doc, default=str)}\n\n"
+                        last_event_time = _time.monotonic()
+                except queue.Empty:
+                    if _time.monotonic() - last_event_time > 10:
+                        yield ": heartbeat\n\n"
+                        last_event_time = _time.monotonic()
+        finally:
+            stop_event.set()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

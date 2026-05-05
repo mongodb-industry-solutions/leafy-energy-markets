@@ -14,6 +14,7 @@ const navItems = [
   { label: 'EnerLeafy AI', href: '/leafy', glyph: 'Sparkle' as const },
   { label: 'Auditing', href: '/audit', glyph: 'OpenNewTab' as const },
   { label: 'CQRS', href: '/cqrs', glyph: 'CurlyBraces' as const },
+  { label: 'Telemetry', href: '/telemetry', glyph: 'ActivityFeed' as const },
   { label: 'Architecture', href: '/architecture', glyph: 'University' as const },
 ];
 

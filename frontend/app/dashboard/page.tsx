@@ -481,14 +481,12 @@ function PositionGapPanel({
       {allTypes.length > 0 && (
         <div className={css`display: flex; flex-direction: column; flex: 1; justify-content: space-evenly;`}>
           {allTypes.map((type) => {
-            const alloc     = portfolio.allocationsByType?.[type];
-            const committed = alloc?.targetMwh ?? 0;
-            const forecast  = assetTotals[type]?.output ?? 0;
-            if (committed === 0 && forecast === 0) return null;
-            const maxVal     = Math.max(committed, forecast, 1);
-            const typeColor  = TYPE_COLORS[type] ?? '#aaa';
-            const gap        = forecast - committed;
-            const gapC       = gap > 5 ? palette.green.base : gap < -5 ? palette.red.base : mutedColor;
+            const output   = assetTotals[type]?.output ?? 0;
+            const capacity = assetTotals[type]?.capacity ?? 0;
+            if (capacity === 0) return null;
+            const utilPct   = Math.min(100, (output / capacity) * 100);
+            const typeColor = TYPE_COLORS[type] ?? '#aaa';
+            const utilColor = utilPct > 80 ? palette.green.base : utilPct > 50 ? palette.yellow.base : palette.red.base;
 
             return (
               <div key={type} className={css`display: flex; align-items: center; gap: 8px;`}>
@@ -496,21 +494,22 @@ function PositionGapPanel({
                   <span>{TYPE_ICONS[type] ?? '⚙️'}</span>
                   <span className={css`text-transform: capitalize;`}>{type}</span>
                 </div>
-                {/* Committed bar */}
+                {/* Output vs capacity bar */}
                 <div className={css`flex: 1; min-width: 0; height: 22px; position: relative; border-radius: 4px; background: ${darkMode ? palette.gray.dark3 : palette.gray.light2}; overflow: hidden;`}>
-                  <div className={css`position: absolute; left: 0; top: 0; height: 100%; width: ${(committed / maxVal) * 100}%; background: ${typeColor}88; transition: width 0.4s ease;`} />
-                  <div className={css`position: absolute; left: 0; top: 0; height: 100%; width: ${(forecast / maxVal) * 100}%; border-right: 2px dashed ${typeColor}; transition: width 0.4s ease;`} />
-                </div>
-                <div className={css`flex-shrink: 0; text-align: right; min-width: 110px;`}>
-                  <div className={css`font-size: 12px; color: ${textColor};`}>
-                    <span className={css`color: ${palette.blue.base}; font-weight: 700;`}>{fmt(committed, 0)}</span>
-                    <span className={css`color: ${mutedColor};`}> / {fmt(forecast, 0)} MWh</span>
-                  </div>
-                  <div className={css`font-size: 12px; font-weight: 700; color: ${gapC};`}>
-                    {gap > 0 ? '+' : ''}{fmt(gap, 0)} MWh
-                    <span className={css`font-size: 11px; margin-left: 3px;`}>
-                      ({forecast > 0 ? Math.round(Math.abs(gap / forecast) * 100) : 0}%)
+                  <div className={css`position: absolute; left: 0; top: 0; height: 100%; width: ${utilPct}%; background: ${typeColor}; opacity: 0.75; border-radius: 4px; transition: width 0.4s ease;`} />
+                  {utilPct > 15 && (
+                    <span className={css`position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 10px; font-weight: 700; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.4);`}>
+                      {fmt(output, 0)} MW
                     </span>
+                  )}
+                </div>
+                <div className={css`flex-shrink: 0; text-align: right; min-width: 100px;`}>
+                  <div className={css`font-size: 12px; color: ${textColor};`}>
+                    <span className={css`font-weight: 700; color: ${typeColor};`}>{fmt(output, 0)}</span>
+                    <span className={css`color: ${mutedColor};`}> / {fmt(capacity, 0)} MW</span>
+                  </div>
+                  <div className={css`font-size: 11px; font-weight: 700; color: ${utilColor};`}>
+                    {utilPct.toFixed(0)}% utilisation
                   </div>
                 </div>
               </div>

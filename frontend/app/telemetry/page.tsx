@@ -219,7 +219,7 @@ export default function TelemetryPage() {
   const [expandedEvent, setExpandedEvent] = useState<number | null>(null);
   const [simRunning, setSimRunning] = useState(false);
   const recentTimestampsRef = useRef<Record<string, number[]>>({});
-  const seenEventIds = useRef<Set<string>>(new Set());
+  const lastSeenTimestamp = useRef<string>('');
 
   const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const textColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
@@ -247,10 +247,10 @@ export default function TelemetryPage() {
   const filterRef = useRef({ streamType: filterStreamType, eventType: filterEventType });
   filterRef.current = { streamType: filterStreamType, eventType: filterEventType };
 
-  // Clear displayed events when filter changes (new events will flow in from SSE)
+  // Clear displayed events when filter changes
   useEffect(() => {
     setEvents([]);
-    seenEventIds.current = new Set();
+    lastSeenTimestamp.current = '';
   }, [filterStreamType, filterEventType]);
 
   useEffect(() => {
@@ -258,11 +258,9 @@ export default function TelemetryPage() {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
 
-    // Reset on filter change
-    setEvents([]);
+    // Reset
     setAssetStats({});
     recentTimestampsRef.current = {};
-    seenEventIds.current = new Set();
     setConnected(false);
     setSource('simulator');
 
@@ -278,10 +276,8 @@ export default function TelemetryPage() {
       setEvents(prev => [event, ...prev].slice(0, 200));
     };
 
-    // Use the simulator SSE — always works, 1s cadence, all events available
     const connect = () => {
       if (disposed) return;
-      seenEventIds.current = new Set();
 
       es = new EventSource('/api/trading/stream');
       es.onopen = () => { setConnected(true); };
@@ -292,20 +288,24 @@ export default function TelemetryPage() {
 
           const allEvents: TradingEvent[] = (state.recentEvents ?? []);
 
-          // Client-side filter using ref (latest values without re-triggering effect)
+          // Client-side filter
           const { streamType, eventType } = filterRef.current;
           let filtered = allEvents;
           if (streamType) filtered = filtered.filter(ev => ev.streamType === streamType);
           if (eventType) filtered = filtered.filter(ev => ev.eventType === eventType);
 
-          for (const ev of filtered) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const evId = (ev as any).id ?? `${ev.eventType}-${ev.timestamp}`;
-            if (ev.eventType && ev.timestamp && !seenEventIds.current.has(evId)) {
-              seenEventIds.current.add(evId);
-              if (seenEventIds.current.size > 500) {
-                seenEventIds.current = new Set(Array.from(seenEventIds.current).slice(-300));
-              }
+          // Only process events newer than what we've already seen
+          const cutoff = lastSeenTimestamp.current;
+          const newEvents = cutoff
+            ? filtered.filter(ev => ev.timestamp > cutoff)
+            : filtered; // first message: show all
+
+          if (newEvents.length > 0) {
+            // Update cutoff to the newest timestamp
+            const newest = newEvents.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
+            lastSeenTimestamp.current = newest.timestamp;
+
+            for (const ev of newEvents) {
               addEvent({
                 streamId: ev.streamId ?? 'UNKNOWN',
                 streamType: ev.streamType ?? 'Unknown',

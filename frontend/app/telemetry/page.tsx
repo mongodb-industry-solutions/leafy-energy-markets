@@ -243,26 +243,28 @@ export default function TelemetryPage() {
   }, [simRunning]);
 
   // SSE: try Change Stream (server-side filtered), fall back to simulator SSE
-  const [source, setSource] = useState<'change-stream' | 'simulator'>('change-stream');
+  const [source, setSource] = useState<'change-stream' | 'simulator'>('simulator');
   const filterRef = useRef({ streamType: filterStreamType, eventType: filterEventType });
   filterRef.current = { streamType: filterStreamType, eventType: filterEventType };
+
+  // Clear displayed events when filter changes (new events will flow in from SSE)
+  useEffect(() => {
+    setEvents([]);
+    seenEventIds.current = new Set();
+  }, [filterStreamType, filterEventType]);
 
   useEffect(() => {
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
-    let gotEvent = false;
 
-    // Reset state on filter change
+    // Reset on filter change
     setEvents([]);
     setAssetStats({});
     recentTimestampsRef.current = {};
     seenEventIds.current = new Set();
-
-    // Queue events and drip them into the feed one at a time for smooth visual cadence
-    const pendingQueue: TradingEvent[] = [];
-    let drainTimer: ReturnType<typeof setInterval> | null = null;
+    setConnected(false);
+    setSource('simulator');
 
     const addEvent = (event: TradingEvent) => {
       const now = Date.now();
@@ -276,73 +278,21 @@ export default function TelemetryPage() {
       setEvents(prev => [event, ...prev].slice(0, 200));
     };
 
-    const processEvent = (event: TradingEvent) => {
-      gotEvent = true;
-      pendingQueue.push(event);
-    };
-
-    // Drain queue at ~200ms intervals for a steady visual drip
-    drainTimer = setInterval(() => {
-      if (pendingQueue.length > 0) {
-        const event = pendingQueue.shift()!;
-        addEvent(event);
-      }
-    }, 200);
-
-    // ── Change Stream SSE (server-side filtered) ──
-    const connectChangeStream = () => {
+    // Use the simulator SSE — always works, 1s cadence, all events available
+    const connect = () => {
       if (disposed) return;
-      const params = new URLSearchParams();
-      if (filterStreamType) params.set('stream_type', filterStreamType);
-      if (filterEventType) params.set('event_type', filterEventType);
-      const qs = params.toString();
-
-      es = new EventSource(`/api/trading/change-stream${qs ? `?${qs}` : ''}`);
-      es.onmessage = (e) => {
-        try {
-          const doc = JSON.parse(e.data);
-          if (doc.type === 'error') { setError(doc.message); return; }
-          if (!gotEvent) {
-            setConnected(true);
-            setSource('change-stream');
-            // Cancel fallback timer — Change Stream is working
-            if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
-          }
-          processEvent(doc);
-        } catch { /* malformed */ }
-      };
-      // Don't close on error — let EventSource auto-retry.
-      // The fallback timer handles the case where it never connects.
-      es.onerror = () => {
-        if (gotEvent) {
-          // Was working, now disconnected — let EventSource retry internally
-          setConnected(false);
-        }
-      };
-      // Fallback after 6s if no events from Change Stream
-      fallbackTimer = setTimeout(() => {
-        if (!gotEvent && !disposed) {
-          es?.close();
-          connectSimulator();
-        }
-      }, 6000);
-    };
-
-    // ── Simulator SSE fallback (client-side filtered) ──
-    const connectSimulator = () => {
-      if (disposed) return;
-      setSource('simulator');
-      setConnected(true);
       seenEventIds.current = new Set();
 
       es = new EventSource('/api/trading/stream');
+      es.onopen = () => { setConnected(true); };
       es.onmessage = (e) => {
         try {
           const state = JSON.parse(e.data);
           if (state.running !== undefined) setSimRunning(state.running);
+
           const allEvents: TradingEvent[] = (state.recentEvents ?? []);
 
-          // Client-side filter
+          // Client-side filter using ref (latest values without re-triggering effect)
           const { streamType, eventType } = filterRef.current;
           let filtered = allEvents;
           if (streamType) filtered = filtered.filter(ev => ev.streamType === streamType);
@@ -356,7 +306,7 @@ export default function TelemetryPage() {
               if (seenEventIds.current.size > 500) {
                 seenEventIds.current = new Set(Array.from(seenEventIds.current).slice(-300));
               }
-              processEvent({
+              addEvent({
                 streamId: ev.streamId ?? 'UNKNOWN',
                 streamType: ev.streamType ?? 'Unknown',
                 eventType: ev.eventType,
@@ -370,20 +320,20 @@ export default function TelemetryPage() {
       es.onerror = () => {
         es?.close();
         setConnected(false);
-        if (!disposed) reconnectTimer = setTimeout(connectSimulator, 2000);
+        if (!disposed) reconnectTimer = setTimeout(connect, 2000);
       };
     };
 
-    connectChangeStream();
+    connect();
 
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-      if (drainTimer) clearInterval(drainTimer);
       es?.close();
     };
-  }, [filterStreamType, filterEventType]);
+  // Only reconnect when the component mounts/unmounts — filters use ref
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Compute events/sec every second
   useEffect(() => {

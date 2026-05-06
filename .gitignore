@@ -42,5 +42,6 @@ coverage/
 
 # VibeCoding
 .claude
+.github
 graphify-out/
 iea-data/

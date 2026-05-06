@@ -248,7 +248,7 @@ export default function TelemetryPage() {
   const source = 'change-stream';
 
   useEffect(() => {
-    let es: EventSource | null = null;
+    let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
 
@@ -273,19 +273,24 @@ export default function TelemetryPage() {
     const connect = () => {
       if (disposed) return;
 
-      // Build URL with filters as query params (server-side filtering)
+      // WebSocket connects directly to the backend (not via Next.js proxy)
       const params = new URLSearchParams();
       if (filterStreamType) params.set('stream_type', filterStreamType);
       if (filterEventType) params.set('event_type', filterEventType);
       const qs = params.toString();
-      const url = `/api/trading/change-stream${qs ? `?${qs}` : ''}`;
 
-      es = new EventSource(url);
-      es.onopen = () => { setConnected(true); setError(null); };
-      es.onmessage = (e) => {
+      // Determine backend host — same host, port 8000
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const backendHost = window.location.hostname + ':8000';
+      const url = `${proto}//${backendHost}/api/trading/ws/change-stream${qs ? `?${qs}` : ''}`;
+
+      ws = new WebSocket(url);
+      ws.onopen = () => { setConnected(true); setError(null); };
+      ws.onmessage = (e) => {
         try {
           const doc = JSON.parse(e.data);
           if (doc.type === 'error') { setError(doc.message); return; }
+          if (doc.type === 'ping') return; // heartbeat, ignore
           addEvent({
             streamId: doc.streamId ?? 'UNKNOWN',
             streamType: doc.streamType ?? 'Unknown',
@@ -295,9 +300,12 @@ export default function TelemetryPage() {
           });
         } catch { /* malformed */ }
       };
-      es.onerror = () => {
-        // Don't close — let EventSource auto-retry
+      ws.onclose = () => {
         setConnected(false);
+        if (!disposed) reconnectTimer = setTimeout(connect, 2000);
+      };
+      ws.onerror = () => {
+        // onclose will fire after onerror — reconnect handled there
       };
     };
 
@@ -306,7 +314,7 @@ export default function TelemetryPage() {
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      es?.close();
+      ws?.close();
     };
   }, [filterStreamType, filterEventType]);
 
@@ -359,7 +367,7 @@ export default function TelemetryPage() {
       {/* Status bar */}
       <div className={css`display: flex; align-items: center; gap: 12px; flex-wrap: wrap;`}>
         <Badge variant={connected ? 'green' : 'yellow'}>
-          {connected ? 'MongoDB Change Stream' : 'Connecting...'}
+          {connected ? 'WebSocket · Change Stream' : 'Connecting...'}
         </Badge>
         <span className={css`font-size: 12px; color: ${textColor};`}>
           {events.length} events received · {totalEventsPerSec.toFixed(1)} events/sec
@@ -416,7 +424,7 @@ export default function TelemetryPage() {
           <div className={css`display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;`}>
             <H3 darkMode={darkMode}>Live Event Feed</H3>
             <span className={css`font-size: 11px; color: ${mutedColor};`}>
-              MongoDB Change Stream → SSE → Browser
+              MongoDB Change Stream → WebSocket → Browser
             </span>
           </div>
 

@@ -10,11 +10,11 @@ import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from './Providers';
 
 const navItems = [
+  { label: 'Telemetry', href: '/telemetry', glyph: 'ActivityFeed' as const },
   { label: 'Dashboard', href: '/dashboard', glyph: 'Dashboard' as const },
   { label: 'EnerLeafy AI', href: '/leafy', glyph: 'Sparkle' as const },
   { label: 'Auditing', href: '/audit', glyph: 'OpenNewTab' as const },
   { label: 'CQRS', href: '/cqrs', glyph: 'CurlyBraces' as const },
-  { label: 'Telemetry', href: '/telemetry', glyph: 'ActivityFeed' as const },
   { label: 'Architecture', href: '/architecture', glyph: 'University' as const },
 ];
 

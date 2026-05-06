@@ -100,7 +100,7 @@ def project_tariff_scenarios():
                 "from token" if resume_token else "from now",
             )
 
-            with db.events.watch(**watch_kwargs) as stream:
+            with db.trading_events.watch(**watch_kwargs) as stream:
                 for change in stream:
                     if change is None:
                         continue  # max_await_time_ms timeout — no new events

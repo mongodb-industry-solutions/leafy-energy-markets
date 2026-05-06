@@ -53,9 +53,8 @@ async def seed_demo_scenario(client: MongoClient = Depends(get_db)):
     Creates a realistic imbalance settlement scenario with multiple events
     for demonstrating fold() replay in the Event Inspector.
     """
-    db_name = DB_NAME
-    db = client[db_name]
-    events_col = db.events
+    db = client[DB_NAME]
+    events_col = db.trading_events
 
     stream_id = f"portfolio:brp-demo-{uuid.uuid4().hex[:8]}"
     base_time = datetime(2024, 12, 15, 13, 45, 0, tzinfo=timezone.utc)

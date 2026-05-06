@@ -302,27 +302,30 @@ export default function TelemetryPage() {
         try {
           const doc = JSON.parse(e.data);
           if (doc.type === 'error') { setError(doc.message); return; }
-          if (!gotEvent) { setConnected(true); setSource('change-stream'); }
+          if (!gotEvent) {
+            setConnected(true);
+            setSource('change-stream');
+            // Cancel fallback timer — Change Stream is working
+            if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+          }
           processEvent(doc);
         } catch { /* malformed */ }
       };
+      // Don't close on error — let EventSource auto-retry.
+      // The fallback timer handles the case where it never connects.
       es.onerror = () => {
-        es?.close();
-        if (!disposed && !gotEvent) {
-          // Change Stream failed before delivering any event — fall back
-          connectSimulator();
-        } else if (!disposed) {
+        if (gotEvent) {
+          // Was working, now disconnected — let EventSource retry internally
           setConnected(false);
-          reconnectTimer = setTimeout(connectChangeStream, 2000);
         }
       };
-      // Fallback after 4s if no events
+      // Fallback after 6s if no events from Change Stream
       fallbackTimer = setTimeout(() => {
         if (!gotEvent && !disposed) {
           es?.close();
           connectSimulator();
         }
-      }, 4000);
+      }, 6000);
     };
 
     // ── Simulator SSE fallback (client-side filtered) ──

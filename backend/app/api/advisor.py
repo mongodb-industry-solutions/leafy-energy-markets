@@ -77,7 +77,7 @@ def _get_llm():
             api_key=azure_key,  # required by pydantic validation; not sent in requests
             base_url=base_url,
             temperature=0.3,
-            max_tokens=4096,
+            max_tokens=2048,
         )
         _common = dict(
             api_key=azure_key,
@@ -96,7 +96,7 @@ def _get_llm():
             model="claude-sonnet-4-6",
             api_key=anthropic_key,
             temperature=0.3,
-            max_tokens=4096,
+            max_tokens=2048,
         )
 
     raise ValueError("No LLM configured. Set AZURE_FOUNDRY_API_KEY + AZURE_FOUNDRY_ENDPOINT in deploy/.env.")
@@ -461,15 +461,14 @@ Your conversation history is persisted in MongoDB — you remember previous mess
 
 ## TOOL USAGE (MANDATORY)
 Call tools in your FIRST action ONLY. Call ALL needed tools SIMULTANEOUSLY in one batch. NEVER repeat a tool call.
-REQUIRED for every question (call all at once in first action):
-1. analyze_portfolio — fleet output by type, live market prices, position gap, P&L, weather events
-2. search_policies — relevant EU/IEA regulations
-Optional (only if the user asks about current events or breaking news):
-3. get_energy_news — latest energy market headlines
-4. web_search — ONE comprehensive query for additional real-time context
-Only if specifically needed:
-5. get_generator_status — per-asset breakdown of fleet output, forecast, variance
-6. search_market_intel — only if specific research or ESG data is needed
+REQUIRED (call in first action):
+1. analyze_portfolio — fleet output, live prices, position gap, revenue, weather events (this contains ALL live data)
+OPTIONAL (only if the question specifically asks about regulations, news, or web data):
+2. search_policies — EU/IEA regulations (only if user asks about policy/regulation)
+3. get_energy_news — latest headlines (only if user asks about current events)
+4. web_search — real-time web data (only if user asks for external info)
+5. get_generator_status — per-asset detail (only if user asks about specific assets)
+6. search_market_intel — research/ESG (only if user asks for research)
 After receiving ALL tool results, write your complete final answer. Do NOT call more tools after receiving results unless critically needed for a specific fact you don't have.
 
 ## INLINE RICH ELEMENTS

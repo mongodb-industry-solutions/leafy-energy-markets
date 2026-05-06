@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { css, keyframes } from '@emotion/css';
 import Card from '@leafygreen-ui/card';
 import Button from '@leafygreen-ui/button';
@@ -72,7 +72,24 @@ export default function AuditPage() {
   const [analysisDone, setAnalysisDone]       = useState(false);
   const [analysisSteps, setAnalysisSteps]     = useState<AgenticStep[]>([]);
   const [stepsOpen, setStepsOpen]             = useState(true);
+  const [isStreaming, setIsStreaming]          = useState(false);
   const toolStartTimes: Record<string, number> = {};
+  const analysisBufferRef = useRef('');
+
+  // Typewriter effect for analysis text
+  useEffect(() => {
+    if (!isStreaming) return;
+    const id = setInterval(() => {
+      const target = analysisBufferRef.current;
+      setAnalysisText(prev => {
+        if (prev.length >= target.length) return prev;
+        const remaining = target.length - prev.length;
+        const chunk = Math.max(8, Math.floor(remaining * 0.1));
+        return target.slice(0, prev.length + chunk);
+      });
+    }, 16);
+    return () => clearInterval(id);
+  }, [isStreaming]);
 
   const loadScenario = useCallback((scenario: ComplianceScenario) => {
     setSelectedScenario(scenario);
@@ -88,9 +105,11 @@ export default function AuditPage() {
     if (!selectedScenario) return;
     setAnalysisLoading(true);
     setAnalysisText('');
+    analysisBufferRef.current = '';
     setAnalysisDone(false);
     setAnalysisSteps([]);
     setStepsOpen(true);
+    setIsStreaming(false);
 
     const steps: AgenticStep[] = [];
     let buffer = '';
@@ -126,17 +145,23 @@ export default function AuditPage() {
 
         } else if (event.type === 'token') {
           buffer += event.text;
+          analysisBufferRef.current = buffer;
           if (firstToken) {
             firstToken = false;
             setAnalysisLoading(false);
+            setIsStreaming(true);
           }
-          setAnalysisText(buffer);
 
         } else if (event.type === 'done') {
           steps.forEach((s) => { if (s.status === 'running') s.status = 'completed'; });
           setAnalysisSteps([...steps]);
-          setAnalysisText(buffer);
-          setAnalysisDone(true);
+          analysisBufferRef.current = buffer;
+          // Let typewriter finish, then finalize
+          setTimeout(() => {
+            setAnalysisText(buffer);
+            setIsStreaming(false);
+            setAnalysisDone(true);
+          }, 500);
 
         } else if (event.type === 'error') {
           throw new Error((event as {type:'error'; message:string}).message);
@@ -145,6 +170,7 @@ export default function AuditPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setAnalysisText(`**Analysis unavailable** — ${msg}\n\nMake sure the backend is running.`);
+      setIsStreaming(false);
       setAnalysisDone(true);
     } finally {
       setAnalysisLoading(false);

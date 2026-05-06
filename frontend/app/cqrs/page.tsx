@@ -381,6 +381,56 @@ export default function CQRSPage() {
         </div>
       </Card>
 
+      {/* ── Time Series + CQRS ─────────────────────────────── */}
+      <Card darkMode={darkMode} className={css`padding: 24px;`}>
+        <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 12px !important;`}>
+          Event Sourcing on a Time Series Collection
+        </Subtitle>
+        <Body className={css`color: ${textColor} !important; font-size: 14px !important; line-height: 1.7 !important; margin-bottom: 16px !important;`}>
+          This platform stores all events in a single <strong className={css`color: ${labelColor};`}>MongoDB Time Series collection</strong> (<code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 13px;`}>trading_events</code>) with <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 13px;`}>timeField: timestamp</code>, <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 13px;`}>metaField: streamType</code>, and a 7-day auto-expiry TTL. This gives us 10-20x storage compression via columnar bucketing and automatic cleanup — ideal for high-frequency telemetry from SCADA/RTU systems generating 3-6 events per second.
+        </Body>
+
+        <div
+          className={css`
+            margin-bottom: 16px;
+            padding: 16px;
+            border-radius: 8px;
+            background: ${accentBg};
+            border-left: 3px solid ${palette.green.base};
+          `}
+        >
+          <Body className={css`color: ${labelColor} !important; font-size: 13px !important; font-weight: 600 !important; margin-bottom: 4px !important;`}>
+            Can you build CQRS on a Time Series collection?
+          </Body>
+          <Body className={css`color: ${textColor} !important; font-size: 13px !important; line-height: 1.6 !important;`}>
+            <strong className={css`color: ${labelColor};`}>Yes</strong>, with one trade-off. Time Series collections don&apos;t support unique indexes or multi-document transactions — so you lose <strong className={css`color: ${labelColor};`}>optimistic concurrency</strong> at the database level. The <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 12px;`}>{'{streamId, version}'}</code> unique index that prevents two writers from appending conflicting events to the same stream simultaneously cannot be enforced. For a single-writer system like this trading simulator, that&apos;s perfectly fine. The CQRS pattern, <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 12px;`}>fold()</code> replay, Change Stream projections, and append-only guarantees all work identically.
+          </Body>
+        </div>
+
+        <div className={css`display: grid; grid-template-columns: 1fr 1fr; gap: 16px; @media (max-width: 800px) { grid-template-columns: 1fr; }`}>
+          <div className={css`padding: 16px; background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'}; border: 1px solid ${borderColor}; border-radius: 8px;`}>
+            <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px;`}>
+              <Badge variant="green">This Demo</Badge>
+              <span className={css`font-size: 14px; font-weight: 600; color: ${labelColor};`}>Single Collection (Time Series)</span>
+            </div>
+            <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
+              All 9 event types stored in <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>trading_events</code>. Single writer (trading simulator). Events ordered by timestamp. fold() replays chronologically. 10-20x compression. Change Streams power the Telemetry tab and read model projections.
+            </Body>
+          </div>
+
+          <div className={css`padding: 16px; background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'}; border: 1px solid ${borderColor}; border-radius: 8px;`}>
+            <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px;`}>
+              <Badge variant="blue">Production</Badge>
+              <span className={css`font-size: 14px; font-weight: 600; color: ${labelColor};`}>Two Collections</span>
+            </div>
+            <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
+              <strong className={css`color: ${labelColor};`}>trading_events</strong> (Time Series) — high-throughput SCADA/RTU telemetry. Compression, auto-expiry, dashboards.<br />
+              <strong className={css`color: ${labelColor};`}>events</strong> (Standard) — CQRS command events with <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>{'{streamId, version}'}</code> unique index + transactions for optimistic concurrency. Required when 50+ traders submit orders to the same portfolio simultaneously.
+            </Body>
+          </div>
+        </div>
+      </Card>
+
       {/* ── CQRS Sequence Diagram ─────────────────────────── */}
       <Card darkMode={darkMode} className={css`padding: 24px; overflow-x: auto;`}>
         <Subtitle className={css`color: ${labelColor} !important; margin-bottom: 4px !important;`}>

@@ -101,6 +101,7 @@ export default function FleetAssetMap() {
   const [simRunning, setSimRunning] = useState(false);
   const [stormActive, setStormActive] = useState(false);
   const [stormCenter, setStormCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [mapKey, setMapKey] = useState(0); // force remount on dark mode change
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // ── Initial state fetch ────────────────────────────────────
@@ -287,6 +288,7 @@ export default function FleetAssetMap() {
         .leaflet-container { height: 100%; width: 100%; }
       `}>
         <MapContainer
+          key={`map-${darkMode}`}
           center={[50, 5]}
           zoom={4}
           style={{ height: '100%', width: '100%' }}

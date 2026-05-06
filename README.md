@@ -68,7 +68,143 @@ The trading simulator manages 8 European energy assets streaming real-time telem
 | Rotterdam BESS | Battery | NL | 50 MW |
 | Gironde Biomass | Biomass | FR | 80 MW |
 
-**Event types**: `MeterReadingRecorded`, `PerformanceVarianceDetected`, `WindForecastUpdated`, `SolarIrradianceForecastUpdated`, `WeatherAlertIssued`, `PositionGapDetected`, `TradeExecuted`, `PnlSnapshotRecorded`, `CapacityAllocationSet`
+## Event Streams & Schemas
+
+All events are stored in per-asset **time series collections** with `timeField: timestamp`, `metaField: streamType`, `granularity: seconds`, and a 7-day TTL. Each event follows this base structure:
+
+```json
+{
+  "streamId": "ASSET-WIND-NL-001",
+  "streamType": "AssetTelemetry | WeatherForecast | TradingPosition",
+  "eventType": "MeterReadingRecorded",
+  "timestamp": "2026-05-06T10:15:00.000Z",
+  "payload": { ... },
+  "metadata": { "source": "trading-simulator", "schemaVersion": 1 }
+}
+```
+
+### Stream: AssetTelemetry
+
+Events from SCADA/RTU sensor readings per asset. `streamId` = asset ID.
+
+**MeterReadingRecorded** — per-asset output reading (1-2 per tick)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `assetId` | string | Asset identifier (e.g. `ASSET-WIND-NL-001`) |
+| `assetType` | string | `wind` / `solar` / `hydro` / `gas` / `battery` / `biomass` |
+| `assetName` | string | Human-readable name |
+| `region` | string | ISO country code (`NL`, `UK`, `ES`, `PT`, `NO`, `DE`, `FR`) |
+| `readingKwh` | float | Energy reading for the interval |
+| `currentOutputMw` | float | Current output in MW |
+| `forecastOutputMw` | float | Forecast output in MW |
+| `varianceMw` | float | Actual minus forecast |
+| `capacityMw` | float | Nameplate capacity |
+| `utilizationPct` | float | Current utilization % |
+| `status` | string | `online` / `curtailed` / `offline` |
+| `quality` | string | `good` / `questionable` |
+
+**PerformanceVarianceDetected** — when actual vs forecast exceeds 10% of capacity
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `assetId` | string | Asset identifier |
+| `actualMw` | float | Actual output |
+| `forecastMw` | float | Forecast output |
+| `variancePct` | float | Variance as % of capacity |
+| `severity` | string | `info` / `warning` |
+
+### Stream: WeatherForecast
+
+Weather and forecast updates. `streamId` = `WEATHER-{region}`.
+
+**WindForecastUpdated** — wind forecast change from ECMWF
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `assetId` | string | Affected wind asset |
+| `region` | string | ISO country code |
+| `forecastDeltaPct` | float | Change in forecast (%) |
+| `updatedForecastMw` | float | New forecast MW |
+| `previousForecastMw` | float | Previous forecast MW |
+| `windSpeedMs` | float | Wind speed in m/s |
+| `source` | string | Forecast source (`ECMWF`) |
+
+**SolarIrradianceForecastUpdated** — solar irradiance forecast change
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `assetId` | string | Affected solar asset |
+| `region` | string | ISO country code |
+| `forecastDeltaPct` | float | Change in forecast (%) |
+| `updatedForecastMw` | float | New forecast MW |
+| `irradianceWm2` | float | Solar irradiance W/m² |
+| `cloudCoverPct` | float | Cloud cover % |
+| `source` | string | Forecast source (`SolarEdge-NWP`) |
+
+**WeatherAlertIssued** — severe weather alert for a region
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `region` | string | Affected region |
+| `severity` | string | `advisory` / `warning` / `critical` |
+| `curtailmentRequired` | boolean | Whether generation must be curtailed |
+| `description` | string | Alert description |
+| `validUntil` | string | ISO datetime when alert expires |
+
+### Stream: TradingPosition
+
+Portfolio and trading events. `streamId` = `PORTFOLIO-001`.
+
+**PositionGapDetected** — gap exceeds threshold (>50 MWh)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `committedMwh` | float | Total committed |
+| `forecastMwh` | float | Total forecast |
+| `gapMwh` | float | Gap (forecast - committed) |
+| `gapType` | string | `surplus` / `shortfall` / `balanced` |
+| `severity` | string | `info` / `warning` / `critical` |
+| `recommendedAction` | string | Suggested trader action |
+| `bestAvailablePriceEurMwh` | float | Best channel price |
+| `estimatedImpactEur` | float | Financial impact estimate |
+
+**TradeExecuted** — trade executed on a market channel
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tradeId` | string | Unique trade ID |
+| `side` | string | `buy` / `sell` |
+| `quantityMwh` | float | Trade quantity |
+| `priceEurMwh` | float | Execution price EUR/MWh |
+| `revenueEur` | float | Trade revenue |
+| `marketChannel` | string | `dayAhead` / `intraday` / `flexibility` |
+| `executionType` | string | `manual` / `algorithmic` |
+| `counterparty` | string | Exchange ID (e.g. `EPEX-DA`) |
+
+**PnlSnapshotRecorded** — periodic revenue snapshot (every 5s)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `realisedPnlEur` | float | Total captured revenue |
+| `fleetGenerationValueEur` | float | Hourly fleet value at best price |
+| `dailyTargetEur` | float | Daily revenue target |
+| `progressPct` | float | Progress toward target (%) |
+| `byAssetType` | object | Per-type breakdown (outputMw, forecastMw, hourlyValueEur) |
+| `bestPriceEurMwh` | float | Best available channel price |
+
+**CapacityAllocationSet** — trader allocates capacity for an asset type
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `assetType` | string | Asset type allocated |
+| `targetMwh` | float | Target allocation MWh |
+| `marketChannel` | string | Selected channel |
+| `priceFloorEur` | float | Minimum acceptable price |
+| `currentPriceEurMwh` | float | Channel price at allocation time |
+| `updatedCommittedMwh` | float | New total committed |
+| `updatedGapMwh` | float | New position gap |
+| `gapType` | string | `surplus` / `shortfall` / `balanced` |
 
 ## Revenue Model
 

@@ -219,7 +219,6 @@ export default function TelemetryPage() {
   const [expandedEvent, setExpandedEvent] = useState<number | null>(null);
   const [simRunning, setSimRunning] = useState(false);
   const recentTimestampsRef = useRef<Record<string, number[]>>({});
-  const lastSeenTimestamp = useRef<string>('');
 
   const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const textColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
@@ -227,10 +226,13 @@ export default function TelemetryPage() {
   const mutedColor = darkMode ? palette.gray.dark1 : palette.gray.light1;
   const panelBg = darkMode ? '#060e1c' : palette.white;
 
-  // Fetch schemas + initial running state
+  // Fetch schemas + poll running state every 3s
   useEffect(() => {
     fetch('/api/trading/event-schemas').then(r => r.ok ? r.json() : {}).then(setSchemas).catch(() => {});
-    fetch('/api/trading/state').then(r => r.ok ? r.json() : null).then(d => { if (d) setSimRunning(d.running); }).catch(() => {});
+    const poll = () => fetch('/api/trading/state').then(r => r.ok ? r.json() : null).then(d => { if (d) setSimRunning(d.running); }).catch(() => {});
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => clearInterval(id);
   }, []);
 
   const handleStartStop = useCallback(async () => {
@@ -242,16 +244,8 @@ export default function TelemetryPage() {
     } catch { /* ignore */ }
   }, [simRunning]);
 
-  // SSE: try Change Stream (server-side filtered), fall back to simulator SSE
-  const [source, setSource] = useState<'change-stream' | 'simulator'>('simulator');
-  const filterRef = useRef({ streamType: filterStreamType, eventType: filterEventType });
-  filterRef.current = { streamType: filterStreamType, eventType: filterEventType };
-
-  // Clear displayed events when filter changes
-  useEffect(() => {
-    setEvents([]);
-    lastSeenTimestamp.current = '';
-  }, [filterStreamType, filterEventType]);
+  // SSE: connect directly to MongoDB Change Stream endpoint
+  const source = 'change-stream';
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -259,10 +253,10 @@ export default function TelemetryPage() {
     let disposed = false;
 
     // Reset
+    setEvents([]);
     setAssetStats({});
     recentTimestampsRef.current = {};
     setConnected(false);
-    setSource('simulator');
 
     const addEvent = (event: TradingEvent) => {
       const now = Date.now();
@@ -279,48 +273,31 @@ export default function TelemetryPage() {
     const connect = () => {
       if (disposed) return;
 
-      es = new EventSource('/api/trading/stream');
-      es.onopen = () => { setConnected(true); };
+      // Build URL with filters as query params (server-side filtering)
+      const params = new URLSearchParams();
+      if (filterStreamType) params.set('stream_type', filterStreamType);
+      if (filterEventType) params.set('event_type', filterEventType);
+      const qs = params.toString();
+      const url = `/api/trading/change-stream${qs ? `?${qs}` : ''}`;
+
+      es = new EventSource(url);
+      es.onopen = () => { setConnected(true); setError(null); };
       es.onmessage = (e) => {
         try {
-          const state = JSON.parse(e.data);
-          if (state.running !== undefined) setSimRunning(state.running);
-
-          const allEvents: TradingEvent[] = (state.recentEvents ?? []);
-
-          // Client-side filter
-          const { streamType, eventType } = filterRef.current;
-          let filtered = allEvents;
-          if (streamType) filtered = filtered.filter(ev => ev.streamType === streamType);
-          if (eventType) filtered = filtered.filter(ev => ev.eventType === eventType);
-
-          // Only process events newer than what we've already seen
-          const cutoff = lastSeenTimestamp.current;
-          const newEvents = cutoff
-            ? filtered.filter(ev => ev.timestamp > cutoff)
-            : filtered; // first message: show all
-
-          if (newEvents.length > 0) {
-            // Update cutoff to the newest timestamp
-            const newest = newEvents.reduce((a, b) => a.timestamp > b.timestamp ? a : b);
-            lastSeenTimestamp.current = newest.timestamp;
-
-            for (const ev of newEvents) {
-              addEvent({
-                streamId: ev.streamId ?? 'UNKNOWN',
-                streamType: ev.streamType ?? 'Unknown',
-                eventType: ev.eventType,
-                timestamp: ev.timestamp,
-                payload: ev.payload ?? {},
-              });
-            }
-          }
+          const doc = JSON.parse(e.data);
+          if (doc.type === 'error') { setError(doc.message); return; }
+          addEvent({
+            streamId: doc.streamId ?? 'UNKNOWN',
+            streamType: doc.streamType ?? 'Unknown',
+            eventType: doc.eventType,
+            timestamp: doc.timestamp,
+            payload: doc.payload ?? {},
+          });
         } catch { /* malformed */ }
       };
       es.onerror = () => {
-        es?.close();
+        // Don't close — let EventSource auto-retry
         setConnected(false);
-        if (!disposed) reconnectTimer = setTimeout(connect, 2000);
       };
     };
 
@@ -331,9 +308,7 @@ export default function TelemetryPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       es?.close();
     };
-  // Only reconnect when the component mounts/unmounts — filters use ref
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [filterStreamType, filterEventType]);
 
   // Compute events/sec every second
   useEffect(() => {
@@ -384,7 +359,7 @@ export default function TelemetryPage() {
       {/* Status bar */}
       <div className={css`display: flex; align-items: center; gap: 12px; flex-wrap: wrap;`}>
         <Badge variant={connected ? 'green' : 'yellow'}>
-          {connected ? (source === 'change-stream' ? 'MongoDB Change Stream' : 'Simulator SSE') : 'Reconnecting...'}
+          {connected ? 'MongoDB Change Stream' : 'Connecting...'}
         </Badge>
         <span className={css`font-size: 12px; color: ${textColor};`}>
           {events.length} events received · {totalEventsPerSec.toFixed(1)} events/sec
@@ -441,7 +416,7 @@ export default function TelemetryPage() {
           <div className={css`display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;`}>
             <H3 darkMode={darkMode}>Live Event Feed</H3>
             <span className={css`font-size: 11px; color: ${mutedColor};`}>
-              {source === 'change-stream' ? 'MongoDB Change Stream → SSE → Browser' : 'Simulator → SSE → Browser'}
+              MongoDB Change Stream → SSE → Browser
             </span>
           </div>
 

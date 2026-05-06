@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { css, keyframes } from '@emotion/css';
 import Card from '@leafygreen-ui/card';
 import Badge from '@leafygreen-ui/badge';
+import Button from '@leafygreen-ui/button';
 import { H3, Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import Icon from '@leafygreen-ui/icon';
@@ -216,6 +217,7 @@ export default function TelemetryPage() {
   const [filterStreamType, setFilterStreamType] = useState('');
   const [filterEventType, setFilterEventType] = useState('');
   const [expandedEvent, setExpandedEvent] = useState<number | null>(null);
+  const [simRunning, setSimRunning] = useState(false);
   const recentTimestampsRef = useRef<Record<string, number[]>>({});
   const seenEventIds = useRef<Set<string>>(new Set());
 
@@ -225,13 +227,20 @@ export default function TelemetryPage() {
   const mutedColor = darkMode ? palette.gray.dark1 : palette.gray.light1;
   const panelBg = darkMode ? '#060e1c' : palette.white;
 
-  // Fetch schemas once
+  // Fetch schemas + initial running state
   useEffect(() => {
-    fetch('/api/trading/event-schemas')
-      .then(r => r.ok ? r.json() : {})
-      .then(setSchemas)
-      .catch(() => {});
+    fetch('/api/trading/event-schemas').then(r => r.ok ? r.json() : {}).then(setSchemas).catch(() => {});
+    fetch('/api/trading/state').then(r => r.ok ? r.json() : null).then(d => { if (d) setSimRunning(d.running); }).catch(() => {});
   }, []);
+
+  const handleStartStop = useCallback(async () => {
+    const url = simRunning ? '/api/trading/stop' : '/api/trading/start';
+    try {
+      await fetch(url, { method: 'POST' });
+      const res = await fetch('/api/trading/state');
+      if (res.ok) { const d = await res.json(); setSimRunning(d.running); }
+    } catch { /* ignore */ }
+  }, [simRunning]);
 
   // SSE: try Change Stream (server-side filtered), fall back to simulator SSE
   const [source, setSource] = useState<'change-stream' | 'simulator'>('change-stream');
@@ -311,6 +320,7 @@ export default function TelemetryPage() {
       es.onmessage = (e) => {
         try {
           const state = JSON.parse(e.data);
+          if (state.running !== undefined) setSimRunning(state.running);
           const allEvents: TradingEvent[] = (state.recentEvents ?? []);
 
           // Client-side filter
@@ -386,6 +396,19 @@ export default function TelemetryPage() {
       <PageHeader
         title="Telemetry"
         subtitle="Live event stream from MongoDB Change Streams on the trading_events time series collection"
+        action={
+          <div className={css`display: flex; align-items: center; gap: 10px;`}>
+            {simRunning && (
+              <span className={css`display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background: ${palette.red.base}; color: ${palette.white};`}>
+                <span className={css`width: 6px; height: 6px; border-radius: 50%; background: ${palette.white}; animation: ${pulse} 1s ease-in-out infinite;`} />
+                Live
+              </span>
+            )}
+            <Button variant={simRunning ? 'danger' : 'primary'} size="small" darkMode={darkMode} onClick={handleStartStop}>
+              {simRunning ? '■ Stop Simulation' : '▶ Start Simulation'}
+            </Button>
+          </div>
+        }
       />
 
       {/* Status bar */}

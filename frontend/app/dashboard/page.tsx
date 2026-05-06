@@ -988,31 +988,6 @@ export default function DashboardPage() {
     });
   }, [state?.assets]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Generator start/stop ─────────────────────
-  const refreshState = useCallback(async () => {
-    try {
-      const res = await fetch('/api/trading/state');
-      if (res.ok) {
-        const data: TradingState = await res.json();
-        setState(prev => { prevPricesRef.current = prev?.prices ?? null; return data; });
-        setAlerts(data.alerts ?? []);
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  const handleStartStop = useCallback(async () => {
-    if (!state) return;
-    const url = state.running ? '/api/trading/stop' : '/api/trading/start';
-    try {
-      await fetch(url, { method: 'POST' });
-      // Force immediate state refresh — don't rely on SSE alone
-      await refreshState();
-      // Poll again after a short delay to catch first tick
-      setTimeout(refreshState, 500);
-      setTimeout(refreshState, 1500);
-    } catch { /* ignore */ }
-  }, [state, refreshState]);
-
   // ── Dismiss alert ────────────────────────────
   const handleDismiss = useCallback(async (id: string) => {
     setAlerts((prev) => prev.filter((a) => a.id !== id));
@@ -1109,17 +1084,12 @@ export default function DashboardPage() {
         title="Trading Dashboard"
         subtitle="European IPP — fleet output, position gap, and revenue capture"
         action={
-          <div className={css`display: flex; align-items: center; gap: 10px;`}>
-            {state.running && (
-              <span className={css`display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background: ${palette.red.base}; color: ${palette.white};`}>
-                <span className={css`width: 6px; height: 6px; border-radius: 50%; background: ${palette.white}; animation: ${blink} 1s ease-in-out infinite;`} />
-                Live
-              </span>
-            )}
-            <Button variant={state.running ? 'danger' : 'primary'} size="small" darkMode={darkMode} onClick={handleStartStop}>
-              {state.running ? '■ Stop Simulation' : '▶ Start Simulation'}
-            </Button>
-          </div>
+          state.running ? (
+            <span className={css`display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background: ${palette.red.base}; color: ${palette.white};`}>
+              <span className={css`width: 6px; height: 6px; border-radius: 50%; background: ${palette.white}; animation: ${blink} 1s ease-in-out infinite;`} />
+              Live
+            </span>
+          ) : undefined
         }
       />
 
@@ -1127,7 +1097,7 @@ export default function DashboardPage() {
       {!state.running && (
         <div className={css`padding: 14px 20px; border-radius: 8px; border: 1px solid ${palette.blue.base}; background: ${darkMode ? '#070f1c' : '#f0f7ff'}; color: ${darkMode ? palette.blue.light1 : palette.blue.dark1}; font-size: 13px; display: flex; align-items: center; gap: 10px;`}>
           <span>ℹ️</span>
-          <span>Simulation is idle. Press <strong>▶ Start Simulation</strong> to begin streaming live data from the trading engine.</span>
+          <span>Simulation is idle. Start the simulation from the <strong>Telemetry</strong> tab to begin streaming live data.</span>
         </div>
       )}
 

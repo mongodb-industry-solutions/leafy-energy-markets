@@ -260,9 +260,11 @@ export default function TelemetryPage() {
     recentTimestampsRef.current = {};
     seenEventIds.current = new Set();
 
-    const processEvent = (event: TradingEvent) => {
-      gotEvent = true;
-      setEvents(prev => [event, ...prev].slice(0, 200));
+    // Queue events and drip them into the feed one at a time for smooth visual cadence
+    const pendingQueue: TradingEvent[] = [];
+    let drainTimer: ReturnType<typeof setInterval> | null = null;
+
+    const addEvent = (event: TradingEvent) => {
       const now = Date.now();
       const key = event.streamId;
       if (!recentTimestampsRef.current[key]) recentTimestampsRef.current[key] = [];
@@ -271,7 +273,21 @@ export default function TelemetryPage() {
         const existing = prev[key] || { eventCount: 0, lastEvent: null, recentTimestamps: [] };
         return { ...prev, [key]: { eventCount: existing.eventCount + 1, lastEvent: event, recentTimestamps: [] } };
       });
+      setEvents(prev => [event, ...prev].slice(0, 200));
     };
+
+    const processEvent = (event: TradingEvent) => {
+      gotEvent = true;
+      pendingQueue.push(event);
+    };
+
+    // Drain queue at ~200ms intervals for a steady visual drip
+    drainTimer = setInterval(() => {
+      if (pendingQueue.length > 0) {
+        const event = pendingQueue.shift()!;
+        addEvent(event);
+      }
+    }, 200);
 
     // ── Change Stream SSE (server-side filtered) ──
     const connectChangeStream = () => {
@@ -361,6 +377,7 @@ export default function TelemetryPage() {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (fallbackTimer) clearTimeout(fallbackTimer);
+      if (drainTimer) clearInterval(drainTimer);
       es?.close();
     };
   }, [filterStreamType, filterEventType]);

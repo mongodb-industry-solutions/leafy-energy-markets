@@ -3,272 +3,208 @@
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                         │
-│   BROWSER                                                                               │
-│   http://localhost:3000                                                                  │
-│                                                                                         │
-│   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│   │ Landing  │ │Dashboard │ │EnerLeafy │ │ Auditing │ │  CQRS    │ │  Arch    │       │
-│   │ Page     │ │          │ │ AI Chat  │ │          │ │ Explainer│ │ Diagram  │       │
-│   │          │ │ Fleet    │ │          │ │ fold()   │ │          │ │          │       │
-│   │ Branding │ │ Position │ │ ReAct    │ │ Replay   │ │ Sequence │ │ Clickable│       │
-│   │ Ticker   │ │ Revenue  │ │ Agent    │ │ Event    │ │ Diagrams │ │ Tiles    │       │
-│   │ CTAs     │ │ Trades   │ │ Fleet    │ │ Inspector│ │ Code     │ │ Embedding│       │
-│   │          │ │ Prices   │ │ Map      │ │ AI Deep  │ │ Blocks   │ │ Bench    │       │
-│   │          │ │ Alerts   │ │ Storm ⛈️  │ │ Analysis │ │          │ │          │       │
-│   └──────────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────────┘ └──────────┘       │
-│                      │            │            │                                         │
-└──────────────────────┼────────────┼────────────┼────────────────────────────────────────┘
-                       │            │            │
-                       │ SSE 1s     │ SSE        │ REST
-                       │ REST       │ REST       │
-                       │            │            │
-         ┌─────────────┼────────────┼────────────┼──────────────────────────┐
-         │             │            │            │                          │
-         │   NEXT.JS PROXY (rewrites /api/* → backend:8000)                │
-         │                                                                  │
-         └──────────────────────────┬───────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                 │
+│   FIELD — 8 European Renewable Energy Assets                                                    │
+│                                                                                                 │
+│   🌬️ Hollandse Kust Wind (NL)          ☀️ Algarrobico Solar (ES)        💧 Nordland Hydro (NO)  │
+│   ┌──────────────────────┐            ┌──────────────────────┐        ┌──────────────────────┐  │
+│   │ SCADA / RTU          │            │ SCADA / PLC          │        │ SCADA / RTU          │  │
+│   │ • Wind speed (m/s)   │            │ • Irradiance (W/m²)  │        │ • Flow rate (m³/s)   │  │
+│   │ • Turbine RPM        │            │ • Panel temp (°C)    │        │ • Head pressure      │  │
+│   │ • Output (MW)        │            │ • Output (MW)        │        │ • Output (MW)        │  │
+│   │ • Grid frequency     │            │ • Inverter status    │        │ • Turbine status     │  │
+│   └──────────┬───────────┘            └──────────┬───────────┘        └──────────┬───────────┘  │
+│              │                                   │                               │              │
+│   🌬️ Hornsea Wind (UK)     ☀️ Sines Solar (PT)    🔥 Rhine CCGT (DE)              │              │
+│   ┌──────────┴───────────┐ ┌──────────┴──────────┐ ┌──────────────────────┐       │              │
+│   │ SCADA / RTU          │ │ SCADA / PLC         │ │ DCS / PLC            │       │              │
+│   │ • Output (MW)        │ │ • Output (MW)       │ │ • Gas flow (MW_th)   │       │              │
+│   │ • Pitch angle        │ │ • Cloud cover (%)   │ │ • Steam temp/press   │       │              │
+│   └──────────┬───────────┘ └──────────┬──────────┘ │ • Output (MW)        │       │              │
+│              │                        │            └──────────┬───────────┘       │              │
+│   ⚡ Rotterdam BESS (NL)   🌿 Gironde Biomass (FR)            │                    │              │
+│   ┌──────────────────────┐ ┌──────────────────────┐          │                    │              │
+│   │ BMS / PLC            │ │ SCADA / PLC          │          │                    │              │
+│   │ • State of charge    │ │ • Feedstock rate     │          │                    │              │
+│   │ • Charge/discharge   │ │ • Boiler temp        │          │                    │              │
+│   │ • Output (MW)        │ │ • Output (MW)        │          │                    │              │
+│   └──────────┬───────────┘ └──────────┬───────────┘          │                    │              │
+│              │                        │                      │                    │              │
+└──────────────┼────────────────────────┼──────────────────────┼────────────────────┼──────────────┘
+               │                        │                      │                    │
+               │  MQTT / OPC-UA         │  MQTT / Modbus       │  MQTT / OPC-UA     │
+               │                        │                      │                    │
+               ▼                        ▼                      ▼                    ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                 │
+│   MESSAGE BROKER / STREAMING LAYER                                                              │
+│                                                                                                 │
+│   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐                    │
+│   │  MQTT Broker (e.g. HiveMQ)     │    │  Apache Kafka                   │                    │
+│   │                                 │    │                                 │                    │
+│   │  Topics:                        │    │  Topics:                        │                    │
+│   │  • asset/{id}/telemetry         │    │  • energy.meter-readings        │                    │
+│   │  • asset/{id}/weather           │    │  • energy.weather-forecasts     │                    │
+│   │  • asset/{id}/alerts            │    │  • energy.trading-events        │                    │
+│   │                                 │    │                                 │                    │
+│   │  QoS 1 (at least once)         │    │  Partitioned by asset region    │                    │
+│   └────────────────┬────────────────┘    └────────────────┬────────────────┘                    │
+│                    │                                      │                                     │
+│                    └──────────────┬───────────────────────┘                                     │
+│                                   │                                                             │
+└───────────────────────────────────┼─────────────────────────────────────────────────────────────┘
                                     │
-                                    │ HTTP
-                                    │
-┌───────────────────────────────────┼───────────────────────────────────────────────────────┐
-│                                   │                                                       │
-│   FASTAPI BACKEND (Python 3.12)   │   http://localhost:8000                               │
-│                                   │                                                       │
-│   ┌───────────────────────────────┼─────────────────────────────────────────────────┐     │
-│   │                            ROUTERS                                              │     │
-│   │                                                                                 │     │
-│   │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐              │     │
-│   │  │  trading    │ │  advisor    │ │  audit      │ │  search     │              │     │
-│   │  │             │ │             │ │             │ │             │              │     │
-│   │  │ GET  /state │ │ POST       │ │ POST        │ │ POST        │              │     │
-│   │  │ POST /start │ │ /advisor/  │ │ /audit/     │ │ /search/    │              │     │
-│   │  │ POST /stop  │ │  stream    │ │  analyze    │ │  hybrid     │              │     │
-│   │  │ GET  /stream│ │             │ │             │ │             │              │     │
-│   │  │ POST /alloc │ │ SSE tokens │ │ LLM analysis│ │ Vector +    │              │     │
-│   │  │ POST /storm │ │ + tool evts│ │ via ReAct   │ │ BM25 + RRF │              │     │
-│   │  └──────┬──────┘ └──────┬─────┘ └──────┬──────┘ └──────┬──────┘              │     │
-│   │         │               │              │               │                     │     │
-│   │  ┌──────┴──────┐ ┌──────┴──────┐       │        ┌──────┴──────┐              │     │
-│   │  │ commands   │ │ queries    │       │        │ telemetry  │              │     │
-│   │  │            │ │            │       │        │            │              │     │
-│   │  │ POST create│ │ GET events │       │        │ POST start │              │     │
-│   │  │ POST seed  │ │ GET replay │       │        │ GET stream │              │     │
-│   │  │            │ │ GET streams│       │        │ POST stop  │              │     │
-│   │  └──────┬─────┘ └──────┬─────┘       │        └─────┬──────┘              │     │
-│   │         │              │              │              │                     │     │
-│   └─────────┼──────────────┼──────────────┼──────────────┼─────────────────────┘     │
-│             │              │              │              │                            │
-│   ┌─────────┼──────────────┼──────────────┼──────────────┼─────────────────────┐     │
-│   │         │         CORE SERVICES       │              │                     │     │
-│   │         │              │              │              │                     │     │
-│   │  ┌──────▼──────────────▼──────┐  ┌───▼────────┐  ┌──▼───────────────┐     │     │
-│   │  │    TradingSimulator        │  │  LangChain  │  │  Embeddings      │     │     │
-│   │  │    (in-memory, 1s tick)    │  │  ReAct      │  │  Client          │     │     │
-│   │  │                            │  │  Agent      │  │                  │     │     │
-│   │  │  8 EU assets               │  │             │  │  voyage-finance-2│     │     │
-│   │  │  Weather events            │  │  6 tools    │  │  1024-dim        │     │     │
-│   │  │  Price random walk         │  │  Claude LLM │  │  hash fallback   │     │     │
-│   │  │  Trade execution           │  │  MCP Server │  │                  │     │     │
-│   │  │  Revenue tracking          │  │  Memory     │  │  embed_texts()   │     │     │
-│   │  │  → persists to MongoDB     │  │  (MongoSvr) │  │  embed_query()   │     │     │
-│   │  └─────────────┬──────────────┘  └──────┬──────┘  └────────┬─────────┘     │     │
-│   │                │                        │                  │               │     │
-│   │  ┌─────────────▼──────────────┐  ┌──────▼──────┐  ┌───────▼──────────┐    │     │
-│   │  │    EventStore (CQRS)       │  │ MongoDB MCP │  │ Hybrid Search    │    │     │
-│   │  │                            │  │ Server      │  │                  │    │     │
-│   │  │  append-only insert_one()  │  │             │  │ $vectorSearch    │    │     │
-│   │  │  fold() replay             │  │ find()      │  │ + regex fallback │    │     │
-│   │  │  {streamId, version} idx   │  │ aggregate() │  │ + RRF merge      │    │     │
-│   │  │  optimistic concurrency    │  │ schema()    │  │                  │    │     │
-│   │  └─────────────┬──────────────┘  └──────┬──────┘  └────────┬─────────┘    │     │
-│   │                │                        │                  │              │     │
-│   └────────────────┼────────────────────────┼──────────────────┼──────────────┘     │
-│                    │                        │                  │                     │
-│   ┌────────────────▼────────────────────────▼──────────────────▼──────────────┐     │
-│   │                        DOMAIN LAYER                                       │     │
-│   │                                                                           │     │
-│   │  ┌────────────────┐ ┌────────────────┐ ┌──────────────────────────┐       │     │
-│   │  │  events.py     │ │ aggregates.py  │ │ commands.py              │       │     │
-│   │  │                │ │                │ │                          │       │     │
-│   │  │  DomainEvent   │ │  Aggregate     │ │  CreateTariffScenario   │       │     │
-│   │  │  TariffCreated │ │  Instrument    │ │  Command                │       │     │
-│   │  │  TradeExecuted │ │  TariffScen.   │ │                          │       │     │
-│   │  │  MeterReading  │ │  fold()        │ │                          │       │     │
-│   │  │  PriceTick     │ │  apply()       │ │                          │       │     │
-│   │  │  Instrument    │ │  record()      │ │                          │       │     │
-│   │  └────────────────┘ └────────────────┘ └──────────────────────────┘       │     │
-│   │                                                                           │     │
-│   └───────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                     │
-└───────────────────────────────────┬─────────────────────────────────────────────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    │               │               │
-                    ▼               ▼               ▼
-┌───────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                       │
-│   MONGODB ATLAS                                                                       │
-│                                                                                       │
-│   ┌─────────────────┐ ┌──────────────────┐ ┌──────────────────┐ ┌─────────────────┐  │
-│   │ events          │ │ trading_events   │ │ market_documents │ │ advisor_        │  │
-│   │                 │ │ ⏱ TIME SERIES    │ │                  │ │ interactions    │  │
-│   │ Append-only     │ │                  │ │ 200+ IEA/EU      │ │ Agent memory    │  │
-│   │ CQRS event store│ │ timeField:       │ │ policy docs      │ │ MongoDBSaver    │  │
-│   │                 │ │   timestamp      │ │ voyage-finance-2 │ │ checkpoints     │  │
-│   │ Unique index:   │ │ metaField:       │ │ 1024-dim vectors │ │                 │  │
-│   │ {streamId,      │ │   streamType     │ │                  │ │ Query + tool    │  │
-│   │  version}       │ │ granularity:     │ │ Atlas Vector     │ │ call logs       │  │
-│   │                 │ │   seconds        │ │ Search index     │ │                 │  │
-│   │ Standard coll.  │ │ TTL: 7 days      │ │                  │ │                 │  │
-│   │ (needs unique   │ │ ~3-6 events/s    │ │ Standard coll.   │ │ Standard coll.  │  │
-│   │  index for      │ │ 10-20x compress. │ │                  │ │                 │  │
-│   │  concurrency)   │ │ 9 event types    │ │                  │ │                 │  │
-│   └────────┬────────┘ └──────────────────┘ └──────────────────┘ └─────────────────┘  │
-│            │                                                                          │
-│   ┌────────▼────────┐ ┌──────────────────┐ ┌──────────────────┐                      │
-│   │ tariff_         │ │ _change_stream_  │ │ checkpoints      │                      │
-│   │ scenarios       │ │ cursors          │ │ (LangGraph)      │                      │
-│   │                 │ │                  │ │                  │                      │
-│   │ Read model      │ │ Resume tokens    │ │ Conversation     │                      │
-│   │ via Change      │ │ for Change       │ │ state per        │                      │
-│   │ Streams         │ │ Stream           │ │ thread_id        │                      │
-│   │                 │ │ projections      │ │                  │                      │
-│   └─────────────────┘ └──────────────────┘ └──────────────────┘                      │
-│                                                                                       │
-└───────────────────────────────────────────────────────────────────────────────────────┘
-
-
-┌───────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                       │
-│   EXTERNAL SERVICES                                                                   │
-│                                                                                       │
-│   ┌─────────────────┐ ┌──────────────────┐ ┌──────────────────┐                      │
-│   │ VoyageAI        │ │ Claude AI        │ │ DuckDuckGo       │                      │
-│   │                 │ │                  │ │                  │                      │
-│   │ voyage-finance-2│ │ claude-sonnet-   │ │ web_search tool  │                      │
-│   │ 1024-dim        │ │ 4-6              │ │ get_energy_news  │                      │
-│   │                 │ │                  │ │ tool             │                      │
-│   │ Document +      │ │ Azure AI Foundry │ │                  │                      │
-│   │ query embedding │ │ OR Anthropic     │ │ Real-time market │                      │
-│   │                 │ │ direct (auto)    │ │ data + headlines │                      │
-│   └─────────────────┘ └──────────────────┘ └──────────────────┘                      │
-│                                                                                       │
-└───────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-## Data Flow Patterns
-
-```
-PATTERN 1: Real-Time Trading (SSE)
-──────────────────────────────────
-
-  Browser ◄──── SSE 1s ──── Next.js proxy ◄──── SSE 1s ──── TradingSimulator._tick_loop()
-     │                                                              │
-     │  Click "Trade"                                               │ _persist_events()
-     │                                                              │ (async, non-blocking)
-     └── POST /allocations ──► apply_allocation() ──► TradeExecuted │
-                                       │                            ▼
-                                       │                    trading_events
-                                       └── reset alloc ──► (⏱ Time Series collection)
-                                                            timeField: timestamp
-                                                            metaField: streamType
-                                                            granularity: seconds
-                                                            TTL: 7 days auto-expiry
-
-
-PATTERN 2: AI Advisor (LangChain ReAct)
-───────────────────────────────────────
-
-  Browser ──── POST /advisor/stream ──► _build_agent()
-     ▲                                       │
-     │                              ┌────────▼────────┐
-     │  SSE events:                 │   LLM NODE      │
-     │  tool_start                  │   (Claude)       │◄─────────────┐
-     │  tool_end                    │                  │              │
-     │  reasoning                   │   "I need data" │              │
-     │  token                       │   OR "I can     │              │
-     │  done                        │    answer"      │              │
-     │                              └──┬───────────┬──┘              │
-     │                                 │           │                 │
-     │                          [TOOLS]│     [DONE]│                 │
-     │                                 ▼           ▼                 │
-     │                     ┌──────────────┐  Stream tokens           │
-     │                     │  PARALLEL    │  to browser              │
-     │                     │  TOOL EXEC   │                          │
-     │                     │              │                          │
-     │                     │ analyze_     │                          │
-     │                     │  portfolio   │  tool results            │
-     │                     │ search_      ├──────────────────────────┘
-     │                     │  policies    │
-     │                     │ (+ optional) │
-     │                     └──────────────┘
-
-
-PATTERN 3: Event Sourcing + CQRS
-────────────────────────────────
-
-  POST /commands/scenarios ──► Command Handler
+                                    │ Kafka Connect / MQTT Sink
                                     │
                                     ▼
-                              record(event)
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                 │
+│   ATLAS STREAM PROCESSING                                                                       │
+│                                                                                                 │
+│   ┌───────────────────────────────────────────────────────────────────────────────────────┐     │
+│   │                                                                                       │     │
+│   │  Stream Processor Pipeline:                                                           │     │
+│   │                                                                                       │     │
+│   │  $source (Kafka/MQTT)                                                                 │     │
+│   │      │                                                                                │     │
+│   │      ▼                                                                                │     │
+│   │  $match  ── filter by event type, validate schema                                     │     │
+│   │      │                                                                                │     │
+│   │      ▼                                                                                │     │
+│   │  $addFields  ── enrich with streamType, normalize timestamps to UTC                   │     │
+│   │      │                                                                                │     │
+│   │      ▼                                                                                │     │
+│   │  $emit  ── write to MongoDB Atlas collections                                         │     │
+│   │                                                                                       │     │
+│   └───────────────────────────────┬───────────────────────────────────────────────────────┘     │
+│                                   │                                                             │
+└───────────────────────────────────┼─────────────────────────────────────────────────────────────┘
                                     │
-                                    ▼
-                         EventStore.save()
-                              insert_one()           Change Stream
-                                    │                     │
-                                    ▼                     ▼
-                            ┌──────────────┐    ┌──────────────────┐
-                            │   events     │───►│ tariff_scenarios │
-                            │  (immutable) │    │  (read model)    │
-                            └──────┬───────┘    └──────────────────┘
-                                   │
-                                   │ GET /events/stream/{id}/replay
-                                   ▼
-                              fold(aggregate, events)
-                                   │
-                                   ▼
-                            State at any version
-
-
-PATTERN 4: Hybrid RAG Search
-────────────────────────────
-
-  Query: "REMIT imbalance obligations"
-          │
-          ├──► voyage-finance-2 ──► $vectorSearch (cosine) ──┐
-          │    embed_query()        market_documents          │
-          │                                                   ├──► RRF merge ──► ranked docs
-          └──► regex fallback ──► $search (BM25 text) ───────┘
-```
-
-## Fleet Assets (Trading Simulator)
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                   8 EUROPEAN ENERGY ASSETS                        │
-│                                                                  │
-│  🌬️ Hollandse Kust Wind   NL  200 MW  ──┐                       │
-│  🌬️ Hornsea Wind Farm     UK  150 MW  ──┤                       │
-│  ☀️ Algarrobico Solar      ES  180 MW  ──┤  Total: 1,480 MW     │
-│  ☀️ Sines Solar Park       PT  120 MW  ──┤                       │
-│  💧 Nordland Hydro         NO  300 MW  ──┤  Events: 3-6/sec     │
-│  🔥 Rhine CCGT             DE  400 MW  ──┤  Tick: 1s            │
-│  ⚡ Rotterdam BESS         NL   50 MW  ──┤                       │
-│  🌿 Gironde Biomass        FR   80 MW  ──┘                       │
-│                                                                  │
-│  Event Types:                                                    │
-│  ├── AssetTelemetry:   MeterReadingRecorded                     │
-│  │                     PerformanceVarianceDetected               │
-│  ├── WeatherForecast:  WindForecastUpdated                      │
-│  │                     SolarIrradianceForecastUpdated            │
-│  │                     WeatherAlertIssued                        │
-│  └── TradingPosition:  PositionGapDetected                      │
-│                        TradeExecuted                             │
-│                        PnlSnapshotRecorded                      │
-│                        CapacityAllocationSet                     │
-└──────────────────────────────────────────────────────────────────┘
+                                    │ Writes to 2 collections
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+                    ▼                               ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                 │
+│   MONGODB ATLAS                                                                                 │
+│                                                                                                 │
+│   ┌──────────────────────────┐        ┌──────────────────────────┐                              │
+│   │  trading_events          │        │  events                  │                              │
+│   │  ⏱ TIME SERIES           │        │  APPEND-ONLY EVENT STORE │                              │
+│   │                          │        │                          │                              │
+│   │  timeField: timestamp    │        │  Unique: {streamId,      │                              │
+│   │  metaField: streamType   │        │           version}       │                              │
+│   │  granularity: seconds    │        │                          │                              │
+│   │  TTL: 7 days             │        │  9 event types:          │                              │
+│   │                          │        │  MeterReadingRecorded    │                              │
+│   │  9 event types           │        │  PerformanceVariance     │                              │
+│   │  ~3-6 events/sec         │        │  WindForecastUpdated     │                              │
+│   │  10-20x compression      │        │  SolarIrradiance         │                              │
+│   │                          │        │  WeatherAlertIssued      │                              │
+│   │                          │        │  PositionGapDetected     │                              │
+│   │                          │        │  TradeExecuted           │                              │
+│   │                          │        │  PnlSnapshotRecorded     │                              │
+│   │                          │        │  CapacityAllocationSet   │                              │
+│   └────────────┬─────────────┘        └─────────────┬────────────┘                              │
+│                │                                    │                                           │
+│                │ Change Stream                      │ Change Stream                             │
+│                │ (watch inserts)                     │ (watch inserts)                           │
+│                │                                    │                                           │
+│                ▼                                    ▼                                           │
+│   ┌──────────────────────────┐        ┌──────────────────────────┐                              │
+│   │                          │        │                          │                              │
+│   │  TELEMETRY TAB           │        │  AUDITING TAB            │                              │
+│   │  Live Event Feed         │        │  fold() Replay           │                              │
+│   │                          │        │                          │                              │
+│   │  Change Stream → SSE     │        │  Replay events 1..N      │                              │
+│   │  → EventSource           │        │  onto empty aggregate    │                              │
+│   │  → Live scrolling table  │        │  → state at any version  │                              │
+│   │                          │        │                          │                              │
+│   │  Schema explorer         │        │  Imbalance Settlement    │                              │
+│   │  Per-asset stats         │        │  EU 2017/2195            │                              │
+│   │  Filter by type          │        │  LLM deep analysis       │                              │
+│   │                          │        │                          │                              │
+│   └──────────────────────────┘        └──────────────────────────┘                              │
+│                                                                                                 │
+│                │                                                                                │
+│                │ Same data also powers:                                                         │
+│                ▼                                                                                │
+│   ┌──────────────────────────┐        ┌──────────────────────────┐                              │
+│   │                          │        │                          │                              │
+│   │  DASHBOARD               │        │  tariff_scenarios        │                              │
+│   │  (via /trading/stream    │        │  (read model)            │                              │
+│   │   SSE from simulator)    │        │                          │                              │
+│   │                          │        │  Built by Change Stream  │                              │
+│   │  Fleet health            │        │  projection from events  │                              │
+│   │  Position gap            │        │  collection              │                              │
+│   │  Revenue tracker         │        │                          │                              │
+│   │  Trade execution         │        │  Resume tokens stored    │                              │
+│   │  Market prices           │        │  in _change_stream_      │                              │
+│   │                          │        │  cursors                 │                              │
+│   └──────────────────────────┘        └──────────────────────────┘                              │
+│                                                                                                 │
+│   ┌──────────────────────────┐        ┌──────────────────────────┐                              │
+│   │  market_documents        │        │  advisor_interactions    │                              │
+│   │                          │        │                          │                              │
+│   │  200+ IEA/EU policies    │        │  MongoDBSaver            │                              │
+│   │  voyage-finance-2        │        │  checkpoints             │                              │
+│   │  1024-dim vectors        │        │  (LangGraph memory)      │                              │
+│   │  Atlas Vector Search     │        │                          │                              │
+│   └────────────┬─────────────┘        └──────────┬───────────────┘                              │
+│                │                                 │                                              │
+└────────────────┼─────────────────────────────────┼──────────────────────────────────────────────┘
+                 │                                 │
+                 │  $vectorSearch + BM25           │  Conversation memory
+                 │                                 │
+                 ▼                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                 │
+│   ENERLEAFY AI — LangChain ReAct Agent (Claude claude-sonnet-4-6)                              │
+│                                                                                                 │
+│   ┌───────────────────────────────────────────────────────────────────────────────────────┐     │
+│   │                                                                                       │     │
+│   │   User question                                                                       │     │
+│   │       │                                                                               │     │
+│   │       ▼                                                                               │     │
+│   │   ┌──────────────────┐                                                                │     │
+│   │   │  LLM decides     │◄────────────────────────────────────────────┐                  │     │
+│   │   │  which tools     │                                             │                  │     │
+│   │   └──┬───────────────┘                                             │                  │     │
+│   │      │                                                             │                  │     │
+│   │      ▼  Parallel tool execution                                    │                  │     │
+│   │   ┌──────────────────────────────────────────────────────────┐     │                  │     │
+│   │   │                                                          │     │                  │     │
+│   │   │  ┌─────────────────┐  analyze_portfolio                  │     │                  │     │
+│   │   │  │ Live fleet data │  Fleet output, prices, gaps,        │     │                  │     │
+│   │   │  │ (from frontend) │  weather events, revenue            │     │  tool results    │     │
+│   │   │  └─────────────────┘                                     │     │                  │     │
+│   │   │                                                          │     │                  │     │
+│   │   │  ┌─────────────────┐  search_policies (optional)         │     │                  │     │
+│   │   │  │ MongoDB Atlas   │  $vectorSearch on market_documents  │─────┘                  │     │
+│   │   │  │ Vector Search   │  voyage-finance-2 embeddings        │                        │     │
+│   │   │  └─────────────────┘                                     │                        │     │
+│   │   │                                                          │                        │     │
+│   │   │  ┌─────────────────┐  web_search / get_energy_news       │                        │     │
+│   │   │  │ DuckDuckGo      │  (optional — only for current       │                        │     │
+│   │   │  │ Web Search      │   events / breaking news)           │                        │     │
+│   │   │  └─────────────────┘                                     │                        │     │
+│   │   │                                                          │                        │     │
+│   │   │  ┌─────────────────┐  MongoDB MCP Server (optional)      │                        │     │
+│   │   │  │ find()          │  Direct database queries            │                        │     │
+│   │   │  │ aggregate()     │  when agent needs raw data          │                        │     │
+│   │   │  └─────────────────┘                                     │                        │     │
+│   │   │                                                          │                        │     │
+│   │   └──────────────────────────────────────────────────────────┘                        │     │
+│   │                                                                                       │     │
+│   │       │                                                                               │     │
+│   │       ▼                                                                               │     │
+│   │   Stream response tokens via SSE → typewriter effect in browser                       │     │
+│   │                                                                                       │     │
+│   └───────────────────────────────────────────────────────────────────────────────────────┘     │
+│                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Revenue Model

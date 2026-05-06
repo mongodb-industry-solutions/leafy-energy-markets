@@ -407,25 +407,34 @@ export default function CQRSPage() {
           </Body>
         </div>
 
-        <div className={css`display: grid; grid-template-columns: 1fr 1fr; gap: 16px; @media (max-width: 800px) { grid-template-columns: 1fr; }`}>
+        <div className={css`display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; @media (max-width: 900px) { grid-template-columns: 1fr; }`}>
           <div className={css`padding: 16px; background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'}; border: 1px solid ${borderColor}; border-radius: 8px;`}>
             <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px;`}>
               <Badge variant="green">This Demo</Badge>
-              <span className={css`font-size: 14px; font-weight: 600; color: ${labelColor};`}>Single Collection (Time Series)</span>
+              <span className={css`font-size: 13px; font-weight: 600; color: ${labelColor};`}>Single Collection</span>
             </div>
             <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
-              All 9 event types stored in <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>trading_events</code>. Single writer (trading simulator). Events ordered by timestamp. fold() replays chronologically. 10-20x compression. Change Streams power the Telemetry tab and read model projections.
+              All 9 event types in one <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>trading_events</code> time series collection. Single writer (simulator). fold() replays by timestamp. 10-20x compression. Change Streams power the live feed.
+            </Body>
+          </div>
+
+          <div className={css`padding: 16px; background: ${darkMode ? 'rgba(0,237,100,0.04)' : 'rgba(0,180,60,0.04)'}; border: 1px solid ${palette.green.base}44; border-radius: 8px;`}>
+            <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px;`}>
+              <Badge variant="green">Recommended</Badge>
+              <span className={css`font-size: 13px; font-weight: 600; color: ${labelColor};`}>Collection per Asset</span>
+            </div>
+            <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
+              One time series collection per generator asset: <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>events_wind_nl_001</code>, <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>events_solar_es_001</code>, etc. Each asset&apos;s SCADA/RTU is the <strong className={css`color: ${labelColor};`}>sole writer</strong> to its own collection — <strong className={css`color: ${labelColor};`}>eliminating the need for optimistic concurrency entirely</strong>. Portfolio-level events (trades, P&amp;L) go to a separate <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>events_portfolio</code> collection, also single-writer. Watch all collections at once with <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>db.watch()</code>.
             </Body>
           </div>
 
           <div className={css`padding: 16px; background: ${darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'}; border: 1px solid ${borderColor}; border-radius: 8px;`}>
             <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px;`}>
-              <Badge variant="blue">Production</Badge>
-              <span className={css`font-size: 14px; font-weight: 600; color: ${labelColor};`}>Two Collections</span>
+              <Badge variant="blue">Multi-Writer</Badge>
+              <span className={css`font-size: 13px; font-weight: 600; color: ${labelColor};`}>Standard + Time Series</span>
             </div>
             <Body className={css`color: ${textColor} !important; font-size: 12px !important; line-height: 1.6 !important;`}>
-              <strong className={css`color: ${labelColor};`}>trading_events</strong> (Time Series) — high-throughput SCADA/RTU telemetry. Compression, auto-expiry, dashboards.<br />
-              <strong className={css`color: ${labelColor};`}>events</strong> (Standard) — CQRS command events with <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>{'{streamId, version}'}</code> unique index + transactions for optimistic concurrency. Required when 50+ traders submit orders to the same portfolio simultaneously.
+              When multiple traders write to the <em>same</em> stream (e.g. 50 traders submitting orders to one portfolio), use a standard collection with <code className={css`background: ${codeBg}; padding: 2px 6px; border-radius: 4px; font-size: 11px;`}>{'{streamId, version}'}</code> unique index + transactions. Keep time series alongside for telemetry. This is the only scenario that requires optimistic concurrency.
             </Body>
           </div>
         </div>

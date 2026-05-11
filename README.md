@@ -295,6 +295,7 @@ Portfolio and trading events. `streamId` = `PORTFOLIO-001`.
   },
   "metadata": { "source": "trading-simulator", "schemaVersion": 1 }
 }
+```
 
 ## Revenue Model
 

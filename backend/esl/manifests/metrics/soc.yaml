@@ -1,0 +1,20 @@
+metric:
+  name: StateOfCharge
+  description: Current state of charge as percentage of usable capacity
+  applies_to:
+    - BatteryEnergyStorageSystem
+  timeseries_source: SOCTimeSeries
+  formula:
+    type: latest
+    field: soc_pct
+  output_field: soc_pct
+  unit: "%"
+  range: [0, 100]
+  cadence: realtime
+  output_collection: metrics.soc
+  iec_cim_property: EnergyStorageUnit.storedE
+  interpretation:
+    critical: [0, 10]
+    low: [10, 25]
+    normal: [25, 75]
+    high: [75, 100]

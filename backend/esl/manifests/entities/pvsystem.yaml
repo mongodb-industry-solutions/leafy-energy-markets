@@ -1,0 +1,44 @@
+entity:
+  name: PVSystem
+  collection: assets
+  filter:
+    asset_type: PV
+  iec_cim_class: PhotoVoltaicUnit
+  description: Photovoltaic solar generation system
+  fields:
+    capacity_kwp:
+      source: specs.capacity_kwp
+      unit: kWp
+      required: true
+      description: Peak DC capacity
+    surface_tilt:
+      source: specs.tilt_deg
+      unit: degrees
+      range: [0, 90]
+      description: Panel tilt angle from horizontal
+    surface_azimuth:
+      source: specs.azimuth_deg
+      unit: degrees
+      range: [0, 360]
+      description: Panel azimuth (180 = south-facing)
+    dc_ac_ratio:
+      source: specs.dc_ac_ratio
+      description: DC/AC inverter loading ratio
+    technology_type:
+      source: specs.technology
+      enum: [mono-Si, poly-Si, thin-film, bifacial]
+      description: PV cell technology
+    inverter_capacity_kw:
+      source: specs.inverter_kw
+      unit: kW
+      description: AC inverter nameplate capacity
+  relationships:
+    site:
+      ref_collection: sites
+      foreign_key: site_id
+    timeseries:
+      - ElectricitySupply
+  tags:
+    - solar
+    - renewable
+    - generation

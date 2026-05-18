@@ -1,0 +1,42 @@
+entity:
+  name: WindFarm
+  collection: assets
+  filter:
+    asset_type: WIND
+  iec_cim_class: WindGeneratingUnit
+  description: Wind energy generation facility (onshore or offshore)
+  fields:
+    capacity_kw:
+      source: specs.capacity_kw
+      unit: kW
+      required: true
+      description: Total installed capacity
+    num_turbines:
+      source: specs.num_turbines
+      required: true
+      description: Number of wind turbines
+    hub_height_m:
+      source: specs.hub_height_m
+      unit: m
+      description: Turbine hub height above ground
+    rotor_diameter_m:
+      source: specs.rotor_diameter_m
+      unit: m
+      description: Rotor diameter
+    wind_class:
+      source: specs.wind_class
+      enum: [I, II, III, S]
+      description: IEC wind turbine class
+    offshore:
+      source: specs.offshore
+      description: Whether installation is offshore
+  relationships:
+    site:
+      ref_collection: sites
+      foreign_key: site_id
+    timeseries:
+      - ElectricitySupply
+  tags:
+    - wind
+    - renewable
+    - generation

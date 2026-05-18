@@ -13,3 +13,4 @@ ddgs
 langchain-mcp-adapters
 langgraph-checkpoint-mongodb
 ragas>=0.2
+pyyaml

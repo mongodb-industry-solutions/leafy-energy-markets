@@ -1,0 +1,49 @@
+entity:
+  name: BatteryEnergyStorageSystem
+  collection: assets
+  filter:
+    asset_type: BESS
+  iec_cim_class: EnergyStorageUnit
+  description: Battery Energy Storage System — grid-connected or behind-the-meter
+  fields:
+    storage_capacity_kwh:
+      source: specs.capacity_kwh
+      unit: kWh
+      required: true
+      description: Nameplate storage capacity
+    max_charge_kw:
+      source: specs.max_charge_kw
+      unit: kW
+      required: true
+      description: Maximum charge rate
+    max_discharge_kw:
+      source: specs.max_discharge_kw
+      unit: kW
+      required: true
+      description: Maximum discharge rate
+    round_trip_efficiency:
+      source: specs.rte_pct
+      unit: "%"
+      range: [0, 100]
+      description: Round-trip efficiency
+    chemistry:
+      source: specs.chemistry
+      enum: [LFP, NMC, NCA, VRLA]
+      description: Battery chemistry type
+    state_of_charge_pct:
+      source: specs.initial_soc
+      unit: "%"
+      range: [0, 100]
+      description: Current state of charge (latest reading)
+  relationships:
+    site:
+      ref_collection: sites
+      foreign_key: site_id
+    timeseries:
+      - SOCTimeSeries
+      - ElectricitySupply
+      - ElectricityDemand
+  tags:
+    - storage
+    - bess
+    - flexibility

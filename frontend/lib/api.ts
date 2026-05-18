@@ -246,6 +246,140 @@ export async function* streamAuditAnalysis(
   }
 }
 
+// ── EnergySemanticLayer (ESL) ─────────────────────────────────
+
+export interface ESLEntityType {
+  name: string;
+  description: string;
+  iec_cim_class: string;
+  collection: string;
+  tags: string[];
+  field_count: number;
+}
+
+export interface ESLEntity {
+  id: string;
+  name: string;
+  asset_type: string;
+  location?: { type: string; coordinates: [number, number] };
+  _esl_entity: string;
+  _iec_cim_class: string;
+  site?: { id: string; name: string; country: string };
+  [key: string]: unknown;
+}
+
+export interface ESLMetricsSummary {
+  portfolio_id: string | null;
+  portfolio_summary: {
+    total_assets: number;
+    by_type: Record<string, number>;
+    total_solar_kwp: number;
+    total_wind_kw: number;
+    total_bess_kwh: number;
+    total_renewable_capacity_mw: number;
+  };
+  renewable_penetration: {
+    renewable_penetration_pct: number;
+    renewable_mw: number;
+    total_mw: number;
+  };
+  capacity_factors: {
+    asset_id: string;
+    asset_name: string;
+    asset_type: string;
+    capacity_factor_pct: number;
+    avg_mw: number;
+    capacity_mw: number;
+  }[];
+  bess_soc: {
+    asset_id: string;
+    asset_name: string;
+    soc_pct: number;
+    available_kwh: number;
+    capacity_kwh: number;
+  }[];
+}
+
+export interface ESLCatalog {
+  esl_version: string;
+  entities: Record<string, { name: string; description: string; iec_cim_class: string; fields: Record<string, unknown> }>;
+  metrics: Record<string, { name: string; description: string; unit: string }>;
+  layers: Record<string, string[]>;
+}
+
+export interface ESLTimeseries {
+  asset_id: string;
+  metric_type: string;
+  hours: number;
+  data: { timestamp: string; value_mw: number }[];
+}
+
+export async function eslGetCatalog(): Promise<ESLCatalog> {
+  const res = await fetch(`${BASE}/esl/catalog`);
+  if (!res.ok) throw new Error(`ESL catalog failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslListEntityTypes(): Promise<ESLEntityType[]> {
+  const res = await fetch(`${BASE}/esl/entities`);
+  if (!res.ok) throw new Error(`ESL entities failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslGetEntities(entityType: string): Promise<{ entity_type: string; description: string; count: number; items: ESLEntity[] }> {
+  const res = await fetch(`${BASE}/esl/entities/${entityType}`);
+  if (!res.ok) throw new Error(`ESL ${entityType} failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslGetRawDocuments(entityType: string): Promise<{ collection: string; filter: Record<string, unknown>; raw_documents: Record<string, unknown>[] }> {
+  const res = await fetch(`${BASE}/esl/entities/${entityType}/raw`);
+  if (!res.ok) throw new Error(`ESL raw ${entityType} failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslGetMetricsSummary(portfolioId?: string): Promise<ESLMetricsSummary> {
+  const url = portfolioId
+    ? `${BASE}/esl/metrics/summary?portfolio_id=${portfolioId}`
+    : `${BASE}/esl/metrics/summary`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`ESL metrics summary failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslGetTimeseries(assetId: string, metricType: string = 'supply', hours: number = 24): Promise<ESLTimeseries> {
+  const res = await fetch(`${BASE}/esl/timeseries/${assetId}?metric_type=${metricType}&hours=${hours}`);
+  if (!res.ok) throw new Error(`ESL timeseries failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslGetPrices(zoneEic?: string): Promise<{ hours: number; zones: Record<string, { timestamp: string; price_eur_mwh: number }[]> }> {
+  const url = zoneEic
+    ? `${BASE}/esl/prices?zone_eic=${encodeURIComponent(zoneEic)}&hours=24`
+    : `${BASE}/esl/prices?hours=24`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`ESL prices failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslDeployViews(dryRun: boolean = false): Promise<{ dry_run: boolean; total: number; deployed: number; results: unknown[] }> {
+  const res = await fetch(`${BASE}/esl/deploy?dry_run=${dryRun}`, { method: 'POST' });
+  if (!res.ok) throw new Error(`ESL deploy failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslGetStatus(): Promise<{ healthy: boolean; views: { view: string; deployed: boolean }[]; esl_version: string }> {
+  const res = await fetch(`${BASE}/esl/status`);
+  if (!res.ok) throw new Error(`ESL status failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function eslSeedData(force: boolean = false): Promise<{ status: string; assets?: number }> {
+  const res = await fetch(`${BASE}/esl/seed?force=${force}`, { method: 'POST' });
+  if (!res.ok) throw new Error(`ESL seed failed: ${res.statusText}`);
+  return res.json();
+}
+
 export async function analyzeAuditScenario(
   scenarioId: string,
   scenarioTitle: string,

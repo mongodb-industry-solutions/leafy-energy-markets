@@ -1,0 +1,27 @@
+metric:
+  name: CapacityFactor
+  description: Ratio of actual energy output to maximum possible output over a period
+  applies_to:
+    - PVSystem
+    - WindFarm
+  timeseries_source: ElectricitySupply
+  formula:
+    type: ratio
+    numerator:
+      operator: $avg
+      field: value_mw
+    denominator:
+      operator: $first
+      field: capacity_mw
+    multiply_by: 100
+  output_field: capacity_factor_pct
+  unit: "%"
+  range: [0, 100]
+  cadence: hourly
+  output_collection: metrics.capacity_factor
+  iec_cim_property: GeneratingUnit.normalPF
+  interpretation:
+    poor: [0, 15]
+    fair: [15, 25]
+    good: [25, 40]
+    excellent: [40, 100]

@@ -1,0 +1,25 @@
+metric:
+  name: RenewablePenetration
+  description: Share of renewable generation in total portfolio output at a point in time
+  applies_to:
+    - Portfolio
+  timeseries_source: ElectricitySupply
+  formula:
+    type: share
+    numerator_filter:
+      asset_type:
+        $in: [PV, WIND]
+    denominator_filter: {}
+    field: value_mw
+    operator: $sum
+    multiply_by: 100
+  output_field: renewable_pct
+  unit: "%"
+  range: [0, 100]
+  cadence: hourly
+  output_collection: metrics.renewable_penetration
+  interpretation:
+    low: [0, 30]
+    medium: [30, 60]
+    high: [60, 80]
+    very_high: [80, 100]

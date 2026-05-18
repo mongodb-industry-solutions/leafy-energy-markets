@@ -1,0 +1,27 @@
+entity:
+  name: BiddingZone
+  collection: market_zones
+  filter: {}
+  iec_cim_class: ControlArea
+  description: EU electricity bidding zone as defined by ENTSO-E
+  fields:
+    eic_code:
+      source: eic_code
+      required: true
+      description: Energy Identification Code (EIC)
+    tso_operator:
+      source: tso
+      description: Transmission System Operator
+    country_code:
+      source: country
+      description: ISO 3166-1 alpha-2 country code
+    coupled_zones:
+      source: coupled_zones
+      description: Market-coupled bidding zones (PCR)
+    control_area:
+      source: control_area
+      description: ENTSO-E control area identifier
+  tags:
+    - market
+    - regulatory
+    - entso-e

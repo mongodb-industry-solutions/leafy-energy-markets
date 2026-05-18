@@ -102,22 +102,40 @@ class TradingSimulator:
 
     @staticmethod
     def _ensure_timeseries_collection(db) -> None:
-        """Create trading_events as a time series collection if it doesn't exist."""
-        if "trading_events" in db.list_collection_names():
-            return
-        try:
-            db.create_collection(
-                "trading_events",
-                timeseries={
-                    "timeField": "timestamp",
-                    "metaField": "streamType",
-                    "granularity": "seconds",
-                },
-                expireAfterSeconds=86400 * 7,  # auto-delete after 7 days
-            )
-            logger.info("Created trading_events time series collection (7-day TTL)")
-        except Exception as e:
-            logger.warning("Could not create time series collection: %s (will use regular)", e)
+        """Create trading_events (time series) and trading_event_log (change stream projection)."""
+        existing = set(db.list_collection_names())
+
+        # ── Analytical layer ─────────────────────────────────────────────────
+        if "trading_events" not in existing:
+            try:
+                db.create_collection(
+                    "trading_events",
+                    timeseries={
+                        "timeField": "timestamp",
+                        "metaField": "streamType",
+                        "granularity": "seconds",
+                    },
+                    expireAfterSeconds=86400 * 7,  # 7-day TTL
+                )
+                logger.info("Created trading_events time series collection (7-day TTL)")
+            except Exception as e:
+                logger.warning("Could not create time series collection: %s (will use regular)", e)
+
+        # ── Change Stream projection layer ───────────────────────────────────
+        # Time series collections don't support change streams (MongoDB limitation).
+        # trading_event_log is a regular collection that mirrors every insert and
+        # is the target for all change stream / WebSocket consumers.
+        if "trading_event_log" not in existing:
+            try:
+                db.create_collection("trading_event_log")
+                db["trading_event_log"].create_index(
+                    [("timestamp", 1)],
+                    expireAfterSeconds=3600,  # 1-hour rolling window keeps it small
+                    name="ttl_timestamp",
+                )
+                logger.info("Created trading_event_log collection (1-hour TTL)")
+            except Exception as e:
+                logger.warning("Could not create trading_event_log: %s", e)
 
     async def stop(self) -> None:
         self._running = False
@@ -288,7 +306,15 @@ class TradingSimulator:
     # ------------------------------------------------------------------
 
     async def _persist_events(self, events: list[dict]) -> None:
-        """Batch-insert trading events to MongoDB. Fails silently — never blocks the simulator."""
+        """Batch-insert trading events to MongoDB. Fails silently — never blocks the simulator.
+
+        Writes to two collections:
+        - trading_events      — time series collection (analytics, 7-day TTL, bucketed storage)
+        - trading_event_log   — regular collection (change stream projection, 1-hour TTL)
+
+        PyMongo mutates docs in-place to add _id during insert_many, so the second
+        write reuses the same _id values — allowing cross-collection lookups by id.
+        """
         try:
             docs = [
                 {
@@ -301,7 +327,10 @@ class TradingSimulator:
                 }
                 for ev in events
             ]
+            # Write 1: time series (adds _id in-place to each doc)
             await asyncio.to_thread(self._db["trading_events"].insert_many, docs, ordered=False)
+            # Write 2: change stream projection (reuses same _id)
+            await asyncio.to_thread(self._db["trading_event_log"].insert_many, docs, ordered=False)
             self._persist_errors = 0  # reset on success
         except Exception:
             self._persist_errors += 1
@@ -1084,11 +1113,17 @@ def _watch_loop(
     q: "queue.Queue[dict]",
     stop_event: threading.Event,
 ) -> None:
-    """Background thread: opens a Change Stream on trading_events and pushes documents to the queue."""
+    """Background thread: opens a Change Stream on trading_event_log and pushes documents to the queue.
+
+    We watch trading_event_log (regular collection) rather than trading_events (time series)
+    because MongoDB does not support change streams on time series collections.
+    trading_event_log is a projection of trading_events — every insert is dual-written there
+    with a 1-hour TTL to keep the collection bounded.
+    """
     from app.infrastructure.db import get_client, DB_NAME as _DB_NAME
     try:
         client = get_client()
-        coll = client[_DB_NAME]["trading_events"]
+        coll = client[_DB_NAME]["trading_event_log"]
     except Exception as exc:
         q.put({"_error": f"Cannot connect to MongoDB: {exc}"})
         return

@@ -207,6 +207,12 @@ async def _enter_mcp_client(stack: AsyncExitStack) -> list:
                         "--readOnly",
                         "--connectionString",
                         mongo_uri,
+                        # Scope to this database only — prevents the MCP server
+                        # from introspecting other databases on the shared cluster
+                        # (e.g. agent_registry) which can trigger expensive
+                        # $listSearchIndexes operations and cause Atlas auto-scaling.
+                        "--database",
+                        "leafy-energy-markets",
                     ],
                     "transport": "stdio",
                 }

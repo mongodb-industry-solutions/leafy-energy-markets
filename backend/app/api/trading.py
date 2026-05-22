@@ -222,7 +222,7 @@ class TradingSimulator:
                 await self._do_tick()
             except Exception:
                 pass
-            await asyncio.sleep(1)
+            await asyncio.sleep(5)
 
     async def _do_tick(self) -> None:
         now = datetime.now(timezone.utc)
@@ -272,7 +272,7 @@ class TradingSimulator:
 
         # 5. Gap alert if significant and cooldown elapsed
         elapsed_gap = (now - self._last_gap_event).total_seconds()
-        if abs(gap_info["gapMwh"]) > 50 and elapsed_gap > 10:
+        if abs(gap_info["gapMwh"]) > 50 and elapsed_gap > 30:
             ev = self._gen_gap_event(gap_info, now)
             events_this_tick.append(ev)
             # Add to alerts deque
@@ -490,8 +490,8 @@ class TradingSimulator:
 
     def _gen_meter_reading(self, asset: dict, now: datetime) -> dict:
         """MeterReadingRecorded event."""
-        # kWh = MW * 1000 / 3600 * 3s interval
-        reading_kwh = asset["currentOutputMw"] * 1000 / 3600 * 3
+        # kWh = MW * 1000 / 3600 * 5s interval
+        reading_kwh = asset["currentOutputMw"] * 1000 / 3600 * 5
         quality = "good" if asset["sensorStatus"] == "ok" else "questionable"
         return {
             "id": str(uuid.uuid4()),

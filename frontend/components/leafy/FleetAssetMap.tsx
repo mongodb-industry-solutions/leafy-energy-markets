@@ -2,13 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { css, keyframes } from '@emotion/css';
-import { MapContainer, TileLayer, CircleMarker, Circle, Tooltip, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import Badge from '@leafygreen-ui/badge';
 import { palette } from '@leafygreen-ui/palette';
 import { useDarkMode } from '@/components/Providers';
-import type { FleetAsset, TradingState, AssetType } from '@/lib/types';
+import type { FleetAsset, AssetType } from '@/lib/types';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -36,7 +35,6 @@ const TYPE_ICON: Record<AssetType, string> = {
   biomass: '🌿',
 };
 
-// Static fallback assets — zero output, shown when simulation is idle / backend unavailable
 const STATIC_ASSETS: FleetAsset[] = [
   { id: 'ASSET-WIND-NL-001',    type: 'wind',    name: 'Hollandse Kust Wind', lat: 52.80, lng:  4.10, capacityMw: 200, currentOutputMw: 0, utilisationPct: 0, status: 'idle', recentEvents: [] },
   { id: 'ASSET-WIND-UK-001',    type: 'wind',    name: 'Hornsea Wind Farm',   lat: 53.90, lng:  0.90, capacityMw: 150, currentOutputMw: 0, utilisationPct: 0, status: 'idle', recentEvents: [] },
@@ -48,32 +46,39 @@ const STATIC_ASSETS: FleetAsset[] = [
   { id: 'ASSET-BIOMASS-FR-001', type: 'biomass', name: 'Gironde Biomass',     lat: 44.80, lng: -0.55, capacityMw:  80, currentOutputMw: 0, utilisationPct: 0, status: 'idle', recentEvents: [] },
 ];
 
+const COORD_MAP: Record<string, { lat: number; lng: number }> = Object.fromEntries(
+  STATIC_ASSETS.map((a) => [a.id, { lat: a.lat, lng: a.lng }])
+);
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
 function markerRadius(asset: FleetAsset): number {
-  const util = asset.capacityMw > 0
-    ? asset.currentOutputMw / asset.capacityMw
-    : 0;
+  const util = asset.capacityMw > 0 ? asset.currentOutputMw / asset.capacityMw : 0;
   return Math.round(util * 18 + 6);
 }
 
 function hasActiveAlert(asset: FleetAsset): boolean {
   return asset.recentEvents.some(
-    (e) =>
-      e.eventType === 'WeatherAlertIssued' ||
-      e.eventType === 'PerformanceVarianceDetected',
+    (e) => e.eventType === 'WeatherAlertIssued' || e.eventType === 'PerformanceVarianceDetected',
   );
 }
 
-function createWeatherIcon(): L.DivIcon {
-  return L.divIcon({
-    html: '<span style="font-size:16px;line-height:1;">⚠️</span>',
-    className: '',
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-  });
+function tooltipHtml(asset: FleetAsset): string {
+  const icon = TYPE_ICON[asset.type] ?? '📌';
+  const statusColor = asset.status === 'alert' ? '#e74c3c' : asset.status === 'online' ? '#00ed64' : '#888';
+  const alertLine = hasActiveAlert(asset)
+    ? `<br/><span style="color:#e74c3c">⚠️ ${asset.recentEvents.map((e) => e.eventType.replace(/([A-Z])/g, ' $1').trim()).join(', ')}</span>`
+    : '';
+  return `
+    <div style="font-size:12px;line-height:1.5">
+      <strong>${icon} ${asset.name}</strong><br/>
+      Output: <strong>${asset.currentOutputMw.toFixed(0)} MW</strong> / ${asset.capacityMw} MW<br/>
+      Utilisation: <strong>${asset.utilisationPct.toFixed(0)}%</strong>
+      <span style="color:${statusColor};font-weight:600"> ${asset.status.toUpperCase()}</span>
+      ${alertLine}
+    </div>`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -101,21 +106,60 @@ export default function FleetAssetMap() {
   const [simRunning, setSimRunning] = useState(false);
   const [stormActive, setStormActive] = useState(false);
   const [stormCenter, setStormCenter] = useState<{ lat: number; lng: number } | null>(null);
-  const [mapKey, setMapKey] = useState(0); // force remount on dark mode change
+
+  const containerRef   = useRef<HTMLDivElement>(null);
+  const mapRef         = useRef<L.Map | null>(null);
+  const tileRef        = useRef<L.TileLayer | null>(null);
+  const assetsLayer    = useRef<L.LayerGroup | null>(null);
+  const stormLayer     = useRef<L.LayerGroup | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  // ── Initialize Leaflet map once ────────────────────────────
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    const map = L.map(containerRef.current, {
+      center: [50, 5],
+      zoom: 4,
+      zoomControl: true,
+      scrollWheelZoom: true,
+    });
+
+    tileRef.current = L.tileLayer(darkMode ? DARK_TILES : LIGHT_TILES, {
+      attribution: TILE_ATTR,
+    }).addTo(map);
+
+    assetsLayer.current = L.layerGroup().addTo(map);
+    stormLayer.current  = L.layerGroup().addTo(map);
+    mapRef.current      = map;
+
+    return () => {
+      map.remove();
+      mapRef.current      = null;
+      tileRef.current     = null;
+      assetsLayer.current = null;
+      stormLayer.current  = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Swap tile URL on dark mode change ──────────────────────
+  useEffect(() => {
+    tileRef.current?.setUrl(darkMode ? DARK_TILES : LIGHT_TILES);
+  }, [darkMode]);
 
   // ── Initial state fetch ────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     fetch('/api/trading/state')
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: any) => {
+      .then((data) => {
         if (!cancelled && data) {
           setState(data);
           setSimRunning(!!data.running);
         }
       })
-      .catch(() => {/* backend unavailable — remain on static fallback */});
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
@@ -123,34 +167,21 @@ export default function FleetAssetMap() {
   useEffect(() => {
     const es = new EventSource('/api/trading/stream');
     eventSourceRef.current = es;
-
     es.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data as string);
         setState(data);
         setSimRunning(!!data.running);
-      } catch {
-        // malformed SSE payload — ignore
-      }
+      } catch { /* ignore */ }
     };
-
-    es.onerror = () => {
-      es.close();
-    };
-
+    es.onerror = () => es.close();
     return () => {
       es.close();
       eventSourceRef.current = null;
     };
   }, []);
 
-  // ── Adapt backend state to FleetAsset shape ────────────────
-  // The backend sends flat asset objects without lat/lng/recentEvents.
-  // We map from STATIC_ASSETS for coordinates and compute missing fields.
-  const COORD_MAP: Record<string, { lat: number; lng: number }> = Object.fromEntries(
-    STATIC_ASSETS.map((a) => [a.id, { lat: a.lat, lng: a.lng }])
-  );
-
+  // ── Derive asset list ──────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const assets: FleetAsset[] = state?.assets
     ? state.assets.map((a: any) => {
@@ -163,38 +194,77 @@ export default function FleetAssetMap() {
           lng: coords.lng,
           capacityMw: a.capacityMw ?? 0,
           currentOutputMw: a.currentOutputMw ?? 0,
-          utilisationPct: a.utilizationPct ?? a.utilizationPct ?? 0,
+          utilisationPct: a.utilizationPct ?? 0,
           status: a.status === 'online' ? 'online' : 'idle',
           recentEvents: [],
         } as FleetAsset;
       })
     : STATIC_ASSETS;
 
-  const totalOutputMw = assets.reduce((s, a) => s + a.currentOutputMw, 0);
-  const totalCapacityMw = assets.reduce((s, a) => s + a.capacityMw, 0);
+  // ── Redraw asset markers ───────────────────────────────────
+  useEffect(() => {
+    if (!assetsLayer.current) return;
+    assetsLayer.current.clearLayers();
+
+    for (const asset of assets) {
+      const color  = TYPE_COLOR[asset.type] ?? '#aaaaaa';
+      const radius = markerRadius(asset);
+      const alert  = hasActiveAlert(asset);
+
+      L.circleMarker([asset.lat, asset.lng], {
+        radius,
+        color:       alert ? palette.red.base : color,
+        fillColor:   color,
+        fillOpacity: asset.status === 'idle' ? 0.2 : 0.75,
+        weight:      alert ? 3 : 1.5,
+      })
+        .bindTooltip(tooltipHtml(asset), { direction: 'top', offset: [0, -radius - 2] })
+        .addTo(assetsLayer.current);
+    }
+  }, [assets]);
+
+  // ── Redraw storm overlay ───────────────────────────────────
+  useEffect(() => {
+    if (!stormLayer.current) return;
+    stormLayer.current.clearLayers();
+
+    if (stormActive && stormCenter) {
+      L.circle([stormCenter.lat, stormCenter.lng], {
+        radius: 400000,
+        color: palette.red.base,
+        fillColor: palette.red.base,
+        fillOpacity: 0.12,
+        weight: 2,
+        dashArray: '8 4',
+      })
+        .bindTooltip('<span style="font-size:12px;font-weight:700;color:#d33">⛈️ Severe Storm — ES/PT Solar &lt;20%</span>', {
+          permanent: true,
+          direction: 'center',
+        })
+        .addTo(stormLayer.current);
+
+      L.marker([stormCenter.lat, stormCenter.lng], {
+        icon: L.divIcon({
+          html: '<span style="font-size:28px;line-height:1;">⛈️</span>',
+          className: '',
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        }),
+      }).addTo(stormLayer.current);
+    }
+  }, [stormActive, stormCenter]);
+
+  // ── Derived display values ─────────────────────────────────
+  const totalOutputMw       = assets.reduce((s, a) => s + a.currentOutputMw, 0);
+  const totalCapacityMw     = assets.reduce((s, a) => s + a.capacityMw, 0);
   const fleetUtilisationPct = totalCapacityMw > 0 ? (totalOutputMw / totalCapacityMw) * 100 : 0;
-  const tileUrl = darkMode ? DARK_TILES : LIGHT_TILES;
   const labelColor = darkMode ? palette.white : palette.black;
   const textColor  = darkMode ? palette.gray.light1 : palette.gray.dark1;
   const mutedColor = darkMode ? palette.gray.dark1  : palette.gray.light1;
 
-  // Weather event markers — show near affected asset but offset slightly so
-  // they don't overlap the CircleMarker.
-  const weatherMarkers = assets.flatMap((asset) =>
-    (asset.recentEvents ?? [])
-      .filter((e) => e.streamType === 'WeatherForecast')
-      .map((e) => ({
-        key: `${asset.id}-${e.eventType}-${e.timestamp}`,
-        lat: asset.lat + 0.6,
-        lng: asset.lng + 0.6,
-        icon: e.eventType === 'WeatherAlertIssued' ? '⚠️' : '🌩️',
-        label: `${e.eventType.replace(/([A-Z])/g, ' $1').trim()} — ${asset.name}`,
-      })),
-  );
-
   return (
     <div className={css`margin-bottom: 8px; padding: 0 8px;`}>
-      {/* Header row */}
+      {/* Header */}
       <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;`}>
         <span className={css`color: ${labelColor}; font-weight: 600; font-size: 14px;`}>
           European Energy Fleet — Live Asset Map
@@ -207,10 +277,7 @@ export default function FleetAssetMap() {
           </>
         )}
 
-        <div className={css`
-          display: inline-flex; align-items: center; gap: 4px;
-          font-size: 11px; color: ${textColor}; opacity: 0.7;
-        `}>
+        <div className={css`display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: ${textColor}; opacity: 0.7;`}>
           <div className={css`
             width: 6px; height: 6px; border-radius: 50%;
             background: ${simRunning ? '#00ed64' : mutedColor};
@@ -219,7 +286,6 @@ export default function FleetAssetMap() {
           {simRunning ? 'LIVE' : 'IDLE'}
         </div>
 
-        {/* Iberian Storm trigger */}
         <button
           onClick={async () => {
             try {
@@ -234,24 +300,15 @@ export default function FleetAssetMap() {
           }}
           disabled={stormActive}
           className={css`
-            margin-left: auto;
-            padding: 5px 12px;
-            border-radius: 6px;
+            margin-left: auto; padding: 5px 12px; border-radius: 6px;
             border: 1px solid ${stormActive ? palette.red.base : palette.yellow.base};
             background: ${stormActive ? `${palette.red.base}22` : `${palette.yellow.base}15`};
             color: ${stormActive ? palette.red.base : palette.yellow.base};
-            font-size: 11px;
-            font-weight: 700;
+            font-size: 11px; font-weight: 700;
             cursor: ${stormActive ? 'default' : 'pointer'};
-            font-family: inherit;
-            display: flex;
-            align-items: center;
-            gap: 5px;
+            font-family: inherit; display: flex; align-items: center; gap: 5px;
             transition: all 0.2s ease;
-            &:hover:not(:disabled) {
-              background: ${palette.yellow.base}30;
-              border-color: ${palette.yellow.base};
-            }
+            &:hover:not(:disabled) { background: ${palette.yellow.base}30; border-color: ${palette.yellow.base}; }
           `}
         >
           {stormActive ? '⛈️ Storm Active — ES/PT' : '⛈️ Trigger Iberian Storm'}
@@ -268,8 +325,7 @@ export default function FleetAssetMap() {
         ))}
         <div className={css`display: flex; align-items: center; gap: 4px; font-size: 10px; color: ${textColor};`}>
           <div className={css`
-            width: 10px; height: 10px; border-radius: 50%;
-            background: transparent;
+            width: 10px; height: 10px; border-radius: 50%; background: transparent;
             border: 2px solid ${palette.red.base};
             animation: ${alertBorder} 1s ease-in-out infinite;
           `} />
@@ -277,139 +333,20 @@ export default function FleetAssetMap() {
         </div>
       </div>
 
-      {/* Map */}
+      {/* Map container — Leaflet initialises imperatively into this div */}
+      <div
+        ref={containerRef}
+        className={css`
+          height: 45vh; max-height: 400px; min-height: 280px;
+          border-radius: 8px; overflow: hidden;
+          border: 1px solid ${darkMode ? palette.gray.dark2 : palette.gray.light2};
+        `}
+      />
+
+      {/* Asset grid */}
       <div className={css`
-        height: 45vh;
-        max-height: 400px;
-        min-height: 280px;
-        border-radius: 8px;
-        overflow: hidden;
-        border: 1px solid ${darkMode ? palette.gray.dark2 : palette.gray.light2};
-        .leaflet-container { height: 100%; width: 100%; }
-      `}>
-        <MapContainer
-          key={`map-${darkMode}`}
-          center={[50, 5]}
-          zoom={4}
-          style={{ height: '100%', width: '100%' }}
-          zoomControl={true}
-          scrollWheelZoom={true}
-        >
-          <TileLayer
-            key={tileUrl}
-            attribution={TILE_ATTR}
-            url={tileUrl}
-          />
-
-          {/* Asset circle markers */}
-          {assets.map((asset) => {
-            const color = TYPE_COLOR[asset.type] ?? '#aaaaaa';
-            const radius = markerRadius(asset);
-            const alertActive = hasActiveAlert(asset);
-
-            return (
-              <CircleMarker
-                key={asset.id}
-                center={[asset.lat, asset.lng]}
-                radius={radius}
-                pathOptions={{
-                  color:       alertActive ? palette.red.base : color,
-                  fillColor:   color,
-                  fillOpacity: asset.status === 'idle' ? 0.2 : 0.75,
-                  weight:      alertActive ? 3 : 1.5,
-                }}
-              >
-                <Tooltip direction="top" offset={[0, -radius - 2]}>
-                  <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                    <strong>{TYPE_ICON[asset.type]} {asset.name}</strong>
-                    <br />
-                    Output: <strong>{asset.currentOutputMw.toFixed(0)} MW</strong>
-                    &nbsp;/&nbsp;{asset.capacityMw} MW
-                    <br />
-                    Utilisation: <strong>{asset.utilisationPct.toFixed(0)}%</strong>
-                    &nbsp;
-                    <span style={{
-                      color: asset.status === 'alert'
-                        ? palette.red.base
-                        : asset.status === 'online'
-                        ? '#00ed64'
-                        : '#888',
-                      fontWeight: 600,
-                    }}>
-                      {asset.status.toUpperCase()}
-                    </span>
-                    {alertActive && (
-                      <>
-                        <br />
-                        <span style={{ color: palette.red.base }}>
-                          ⚠️ {asset.recentEvents.map((e) => e.eventType.replace(/([A-Z])/g, ' $1').trim()).join(', ')}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </Tooltip>
-              </CircleMarker>
-            );
-          })}
-
-          {/* Weather event markers */}
-          {weatherMarkers.map((wm) => (
-            <Marker
-              key={wm.key}
-              position={[wm.lat, wm.lng]}
-              icon={L.divIcon({
-                html: `<span style="font-size:14px;line-height:1;">${wm.icon}</span>`,
-                className: '',
-                iconSize: [18, 18],
-                iconAnchor: [9, 9],
-              })}
-            >
-              <Tooltip direction="top">
-                <span style={{ fontSize: 11 }}>{wm.label}</span>
-              </Tooltip>
-            </Marker>
-          ))}
-
-          {/* Storm visualization */}
-          {stormActive && stormCenter && (
-            <>
-              <Circle
-                center={[stormCenter.lat, stormCenter.lng]}
-                radius={400000}
-                pathOptions={{
-                  color: palette.red.base,
-                  fillColor: palette.red.base,
-                  fillOpacity: 0.12,
-                  weight: 2,
-                  dashArray: '8 4',
-                }}
-              >
-                <Tooltip direction="center" permanent>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#d33' }}>
-                    ⛈️ Severe Storm — ES/PT Solar &lt;20%
-                  </span>
-                </Tooltip>
-              </Circle>
-              <Marker
-                position={[stormCenter.lat, stormCenter.lng]}
-                icon={L.divIcon({
-                  html: '<span style="font-size:28px;line-height:1;">⛈️</span>',
-                  className: '',
-                  iconSize: [32, 32],
-                  iconAnchor: [16, 16],
-                })}
-              />
-            </>
-          )}
-        </MapContainer>
-      </div>
-
-      {/* Asset grid below the map */}
-      <div className={css`
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-        gap: 4px;
-        margin-top: 6px;
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 4px; margin-top: 6px;
       `}>
         {assets.map((asset) => {
           const color = TYPE_COLOR[asset.type] ?? '#aaaaaa';
@@ -418,12 +355,8 @@ export default function FleetAssetMap() {
             <div
               key={asset.id}
               className={css`
-                display: flex;
-                flex-direction: column;
-                gap: 2px;
-                padding: 5px 8px;
-                border-radius: 5px;
-                font-size: 10px;
+                display: flex; flex-direction: column; gap: 2px;
+                padding: 5px 8px; border-radius: 5px; font-size: 10px;
                 background: ${darkMode ? '#112733' : palette.gray.light3};
                 border-left: 3px solid ${alertActive ? palette.red.base : color};
                 border-top: 1px solid ${darkMode ? palette.gray.dark2 : palette.gray.light2};
@@ -441,17 +374,10 @@ export default function FleetAssetMap() {
               <span className={css`opacity: 0.8;`}>
                 {asset.utilisationPct.toFixed(0)}% utilisation
               </span>
-              {/* Progress bar */}
-              <div className={css`
-                height: 2px; border-radius: 2px; margin-top: 2px;
-                background: ${darkMode ? palette.gray.dark2 : palette.gray.light2};
-              `}>
+              <div className={css`height: 2px; border-radius: 2px; margin-top: 2px; background: ${darkMode ? palette.gray.dark2 : palette.gray.light2};`}>
                 <div className={css`
-                  height: 100%;
-                  width: ${Math.min(asset.utilisationPct, 100)}%;
-                  border-radius: 2px;
-                  background: ${alertActive ? palette.red.base : color};
-                  transition: width 0.8s ease;
+                  height: 100%; width: ${Math.min(asset.utilisationPct, 100)}%; border-radius: 2px;
+                  background: ${alertActive ? palette.red.base : color}; transition: width 0.8s ease;
                 `} />
               </div>
               {alertActive && (
@@ -464,7 +390,6 @@ export default function FleetAssetMap() {
         })}
       </div>
 
-      {/* Disclaimer when backend not available */}
       {!state && (
         <div className={css`margin-top: 6px; font-size: 10px; color: ${mutedColor}; text-align: center;`}>
           Showing static assets — connect to backend for live data

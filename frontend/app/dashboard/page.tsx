@@ -553,7 +553,7 @@ function MarketSignalsPanel({ events, darkMode }: { events: RecentEvent[]; darkM
         </div>
       ) : (
         <div className={css`display: flex; flex-direction: column; gap: 6px;`}>
-          {signals.map((ev) => {
+          {signals.map((ev, idx) => {
             const p = ev.payload;
             let summary = '';
             let badge = '';
@@ -581,7 +581,7 @@ function MarketSignalsPanel({ events, darkMode }: { events: RecentEvent[]; darkM
 
             return (
               <div
-                key={ev.id}
+                key={ev.id ?? `${ev.timestamp}-${ev.eventType}-${idx}`}
                 className={css`
                   display: flex;
                   align-items: flex-start;

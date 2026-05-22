@@ -1,0 +1,25 @@
+[project]
+name = "leafy-energy-markets-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.128.7",
+    "uvicorn[standard]==0.40.0",
+    "pymongo==4.15.5",
+    "pydantic==2.12.5",
+    "python-dotenv==1.2.1",
+    "httpx==0.28.1",
+    "pytest==9.0.2",
+    "langchain==1.2.10",
+    "langchain-anthropic==1.3.4",
+    "langchain-core==1.2.22",
+    "langgraph==1.0.9",
+    "ddgs==9.13.0",
+    "langchain-mcp-adapters==0.2.2",
+    "langgraph-checkpoint-mongodb==0.3.1",
+    "ragas==0.4.3",
+    "pyyaml==6.0.3",
+]
+
+[tool.uv]
+dev-dependencies = []

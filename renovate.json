@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchManagers": ["npm", "pnpm"],
+      "rangeStrategy": "pin",
+      "minimumReleaseAge": "3 days",
+      "description": "Pin npm/pnpm deps to exact versions; wait 3 days before raising an update PR"
+    },
+    {
+      "matchManagers": ["uv"],
+      "minimumReleaseAge": "3 days",
+      "description": "Wait 3 days before raising a Python/uv update PR"
+    }
+  ]
+}

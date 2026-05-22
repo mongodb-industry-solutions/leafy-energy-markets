@@ -114,23 +114,35 @@ function summarizePayload(event: TradingEvent): string {
 
 // ─── Schema Explorer ──────────────────────────
 
+function exampleValue(type: string): string {
+  const t = type.toLowerCase();
+  if (t === 'bool' || t === 'boolean') return 'true';
+  if (t === 'int' || t === 'integer') return '0';
+  if (t === 'float' || t === 'number') return '0.0';
+  if (t.includes('iso') || t.includes('datetime') || t.includes('timestamp')) return '"2024-01-15T10:30:00Z"';
+  return '"…"';
+}
+
+function buildJsonLines(fields: PayloadField[]): { key: string; value: string; comment: string }[] {
+  return fields.map(f => ({
+    key: f.name,
+    value: exampleValue(f.type),
+    comment: `${f.type} — ${f.description}`,
+  }));
+}
+
 function SchemaExplorer({
   schemas, darkMode,
 }: {
   schemas: Record<string, EventSchema>;
   darkMode: boolean;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<string | null>(null);
   const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const textColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
   const headingColor = darkMode ? palette.white : palette.black;
+  const mutedColor = darkMode ? palette.gray.dark1 : palette.gray.light1;
   const codeBg = darkMode ? '#0d1b24' : '#f5f6f7';
-
-  const toggle = (key: string) => setExpanded(prev => {
-    const next = new Set(prev);
-    next.has(key) ? next.delete(key) : next.add(key);
-    return next;
-  });
 
   const grouped: Record<string, [string, EventSchema][]> = {};
   for (const [name, schema] of Object.entries(schemas)) {
@@ -139,68 +151,97 @@ function SchemaExplorer({
     grouped[st].push([name, schema]);
   }
 
+  const selectedSchema = selected ? schemas[selected] : null;
+  const selectedStream = selectedSchema?.streamType ?? '';
+
   return (
-    <div className={css`display: flex; flex-direction: column; gap: 10px;`}>
-      {Object.entries(grouped).map(([streamType, entries]) => (
-        <div key={streamType}>
-          <div className={css`display: flex; align-items: center; gap: 6px; margin-bottom: 6px;`}>
-            <div className={css`width: 8px; height: 8px; border-radius: 50%; background: ${STREAM_TYPE_COLORS[streamType] ?? '#aaa'};`} />
-            <span className={css`font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: ${STREAM_TYPE_COLORS[streamType] ?? textColor};`}>
-              {streamType}
-            </span>
-          </div>
-          {entries.map(([name, schema]) => {
-            const isOpen = expanded.has(name);
-            return (
-              <div key={name} className={css`margin-bottom: 4px;`}>
-                <button
-                  onClick={() => toggle(name)}
-                  className={css`
-                    width: 100%; text-align: left; padding: 8px 12px; border-radius: 6px;
-                    border: 1px solid ${isOpen ? STREAM_TYPE_COLORS[streamType] ?? borderColor : borderColor};
-                    background: ${isOpen ? `${STREAM_TYPE_COLORS[streamType]}11` : 'transparent'};
-                    cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 8px;
-                    transition: all 0.15s; &:hover { border-color: ${STREAM_TYPE_COLORS[streamType]}; }
-                  `}
-                >
-                  <span className={css`font-size: 14px;`}>{EVENT_ICONS[name] ?? '📋'}</span>
-                  <div className={css`flex: 1; min-width: 0;`}>
-                    <div className={css`font-size: 12px; font-weight: 600; color: ${headingColor};`}>{name}</div>
-                    <div className={css`font-size: 10px; color: ${textColor}; margin-top: 1px;`}>{schema.description}</div>
-                  </div>
-                  <span className={css`font-size: 10px; color: ${textColor}; transition: transform 0.2s; transform: rotate(${isOpen ? '180deg' : '0deg'});`}>▼</span>
-                </button>
-                {isOpen && (
-                  <div className={css`
-                    padding: 8px; margin-top: 2px; border-radius: 6px;
-                    background: ${codeBg}; border: 1px solid ${borderColor};
-                    animation: ${fadeIn} 0.15s ease;
-                  `}>
-                    <table className={css`width: 100%; border-collapse: collapse; font-size: 11px;`}>
-                      <thead>
-                        <tr>
-                          {['Field', 'Type', 'Description'].map(h => (
-                            <th key={h} className={css`text-align: left; padding: 4px 6px; color: ${textColor}; font-weight: 600; border-bottom: 1px solid ${borderColor};`}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {schema.payloadFields.map(f => (
-                          <tr key={f.name}>
-                            <td className={css`padding: 3px 6px; font-family: 'SF Mono', monospace; color: ${headingColor}; font-weight: 600;`}>{f.name}</td>
-                            <td className={css`padding: 3px 6px; color: ${STREAM_TYPE_COLORS[streamType]};`}>{f.type}</td>
-                            <td className={css`padding: 3px 6px; color: ${textColor};`}>{f.description}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+    <div className={css`display: flex; flex-direction: column; gap: 16px;`}>
+      {/* Three-column event picker — one column per stream type */}
+      <div className={css`display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; @media (max-width: 700px) { grid-template-columns: 1fr; }`}>
+        {Object.entries(grouped).map(([streamType, entries]) => {
+          const streamColor = STREAM_TYPE_COLORS[streamType] ?? '#aaa';
+          return (
+            <div key={streamType}>
+              <div className={css`display: flex; align-items: center; gap: 5px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid ${streamColor}40;`}>
+                <div className={css`width: 8px; height: 8px; border-radius: 50%; background: ${streamColor};`} />
+                <span className={css`font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: ${streamColor};`}>
+                  {streamType}
+                </span>
+                <span className={css`font-size: 10px; color: ${textColor}; opacity: 0.5; margin-left: auto;`}>{entries.length} events</span>
               </div>
-            );
-          })}
+              <div className={css`display: flex; flex-direction: column; gap: 3px;`}>
+                {entries.map(([name, schema]) => {
+                  const isSelected = selected === name;
+                  return (
+                    <button
+                      key={name}
+                      onClick={() => setSelected(isSelected ? null : name)}
+                      className={css`
+                        width: 100%; text-align: left; padding: 7px 10px; border-radius: 6px;
+                        border: 1px solid ${isSelected ? streamColor : borderColor};
+                        background: ${isSelected ? `${streamColor}15` : 'transparent'};
+                        cursor: pointer; font-family: inherit;
+                        display: flex; align-items: center; gap: 8px;
+                        transition: all 0.12s;
+                        &:hover { border-color: ${streamColor}; background: ${streamColor}0a; }
+                      `}
+                    >
+                      <span className={css`font-size: 15px; flex-shrink: 0;`}>{EVENT_ICONS[name] ?? '📋'}</span>
+                      <div className={css`flex: 1; min-width: 0;`}>
+                        <div className={css`font-size: 12px; font-weight: 600; color: ${headingColor};`}>{name}</div>
+                        <div className={css`font-size: 10px; color: ${textColor}; opacity: 0.7; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`}>{schema.description}</div>
+                      </div>
+                      <span className={css`font-size: 9px; color: ${isSelected ? streamColor : textColor}; opacity: ${isSelected ? 1 : 0.5}; flex-shrink: 0; font-weight: 600;`}>
+                        {schema.payloadFields.length} fields
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Payload detail panel — full width, shown when an event is selected */}
+      {selectedSchema && (
+        <div className={css`animation: ${fadeIn} 0.15s ease;`}>
+          <div className={css`
+            border-top: 2px solid ${STREAM_TYPE_COLORS[selectedStream] ?? borderColor};
+            padding-top: 12px;
+          `}>
+            <div className={css`display: flex; align-items: center; gap: 8px; margin-bottom: 10px;`}>
+              <span className={css`font-size: 18px;`}>{EVENT_ICONS[selected!] ?? '📋'}</span>
+              <div>
+                <span className={css`font-size: 13px; font-weight: 700; color: ${headingColor};`}>{selected}</span>
+                <span className={css`font-size: 11px; color: ${textColor}; opacity: 0.7; margin-left: 10px;`}>{selectedSchema.description}</span>
+              </div>
+            </div>
+            <div className={css`
+              border-radius: 8px; overflow: hidden;
+              border: 1px solid ${borderColor};
+              background: ${codeBg};
+            `}>
+              <pre className={css`margin: 0; padding: 14px 16px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.8; overflow-x: auto;`}>
+                <span style={{ color: mutedColor }}>{'{'}</span>{'\n'}
+                {buildJsonLines(selectedSchema.payloadFields).map((line, i, arr) => (
+                  <span key={line.key}>
+                    {'  '}
+                    <span style={{ color: darkMode ? '#79c0ff' : '#0055cc' }}>{`"${line.key}"`}</span>
+                    <span style={{ color: mutedColor }}>: </span>
+                    <span style={{ color: line.value.startsWith('"') ? (darkMode ? '#a5d6a7' : '#1a7f37') : (darkMode ? '#f8af73' : '#c2410c') }}>{line.value}</span>
+                    {i < arr.length - 1 && <span style={{ color: mutedColor }}>,</span>}
+                    {'  '}
+                    <span style={{ color: mutedColor, fontStyle: 'italic' }}>{`// ${line.comment}`}</span>
+                    {'\n'}
+                  </span>
+                ))}
+                <span style={{ color: mutedColor }}>{'}'}</span>
+              </pre>
+            </div>
+          </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -244,9 +285,7 @@ export default function TelemetryPage() {
     } catch { /* ignore */ }
   }, [simRunning]);
 
-  // SSE: connect directly to MongoDB Change Stream endpoint
-  const source = 'change-stream';
-
+  // Connect directly to MongoDB Change Stream endpoint via WebSocket
   useEffect(() => {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -403,21 +442,8 @@ export default function TelemetryPage() {
         </div>
       </div>
 
-      {/* Main layout: Schema + Feed + Stats */}
-      <div className={css`display: grid; grid-template-columns: 280px 1fr 260px; gap: 16px; @media (max-width: 1100px) { grid-template-columns: 1fr; }`}>
-
-        {/* Left: Schema Explorer */}
-        <Card darkMode={darkMode} className={css`padding: 16px; overflow-y: auto; max-height: 80vh;`}>
-          <H3 darkMode={darkMode} className={css`margin-bottom: 12px !important;`}>Event Schemas</H3>
-          <Body darkMode={darkMode} className={css`font-size: 11px !important; color: ${textColor} !important; margin-bottom: 12px !important;`}>
-            9 event types across 3 stream families. Click to expand payload schema.
-          </Body>
-          {Object.keys(schemas).length > 0 ? (
-            <SchemaExplorer schemas={schemas} darkMode={darkMode} />
-          ) : (
-            <div className={css`text-align: center; color: ${mutedColor}; font-size: 12px; padding: 20px;`}>Loading schemas...</div>
-          )}
-        </Card>
+      {/* Main layout: Feed + Stats (top row) */}
+      <div className={css`display: grid; grid-template-columns: 1fr 260px; gap: 16px; @media (max-width: 1000px) { grid-template-columns: 1fr; }`}>
 
         {/* Center: Live Event Feed */}
         <Card darkMode={darkMode} className={css`padding: 16px; overflow: hidden; display: flex; flex-direction: column;`}>
@@ -537,6 +563,21 @@ export default function TelemetryPage() {
           )}
         </Card>
       </div>
+
+      {/* Bottom: Event Schema Reference */}
+      <Card darkMode={darkMode} className={css`padding: 16px;`}>
+        <div className={css`display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px;`}>
+          <H3 darkMode={darkMode}>Event Schema Reference</H3>
+          <Body darkMode={darkMode} className={css`font-size: 11px !important; color: ${textColor} !important;`}>
+            9 event types · 3 stream families · click any event to inspect its payload shape
+          </Body>
+        </div>
+        {Object.keys(schemas).length > 0 ? (
+          <SchemaExplorer schemas={schemas} darkMode={darkMode} />
+        ) : (
+          <div className={css`text-align: center; color: ${mutedColor}; font-size: 12px; padding: 20px;`}>Loading schemas...</div>
+        )}
+      </Card>
     </div>
   );
 }

@@ -9,15 +9,11 @@ trigger:
   event:
     - push
 
-# ── Build & push backend ───────────────────────────────────────────────────────
 steps:
+  # ── Build & push backend (IRSA provides ECR credentials automatically) ─────────
   - name: build-backend
     image: plugins/ecr
     settings:
-      access_key:
-        from_secret: ecr_access_key
-      secret_key:
-        from_secret: ecr_secret_key
       region: us-east-1
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
       repo: industrysolutions/leafy-energy-markets-backend
@@ -27,13 +23,10 @@ steps:
       dockerfile: backend/Dockerfile
       context: backend
 
+  # ── Build & push frontend ──────────────────────────────────────────────────────
   - name: build-frontend
     image: plugins/ecr
     settings:
-      access_key:
-        from_secret: ecr_access_key
-      secret_key:
-        from_secret: ecr_secret_key
       region: us-east-1
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
       repo: industrysolutions/leafy-energy-markets-frontend
@@ -43,10 +36,10 @@ steps:
       dockerfile: frontend/Dockerfile
       context: frontend
       build_args:
-        # Pass a dummy value — real URL is injected by next.config.js API proxy at runtime
+        # Real API URL is injected at runtime via next.config.js proxy — not baked in at build time
         - NEXT_PUBLIC_API_URL=/api
 
-  # ── Deploy backend pod ────────────────────────────────────────────────────────
+  # ── Deploy backend pod ─────────────────────────────────────────────────────────
   - name: deploy-backend-staging
     image: kanopy/drone-kanopy:latest
     settings:
@@ -61,7 +54,7 @@ steps:
     depends_on:
       - build-backend
 
-  # ── Deploy frontend pod ───────────────────────────────────────────────────────
+  # ── Deploy frontend pod ────────────────────────────────────────────────────────
   - name: deploy-frontend-staging
     image: kanopy/drone-kanopy:latest
     settings:
@@ -91,10 +84,6 @@ steps:
   - name: build-backend
     image: plugins/ecr
     settings:
-      access_key:
-        from_secret: ecr_access_key
-      secret_key:
-        from_secret: ecr_secret_key
       region: us-east-1
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
       repo: industrysolutions/leafy-energy-markets-backend
@@ -107,10 +96,6 @@ steps:
   - name: build-frontend
     image: plugins/ecr
     settings:
-      access_key:
-        from_secret: ecr_access_key
-      secret_key:
-        from_secret: ecr_secret_key
       region: us-east-1
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
       repo: industrysolutions/leafy-energy-markets-frontend

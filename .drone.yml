@@ -10,7 +10,7 @@ trigger:
     - push
 
 steps:
-  # ── Build & push backend via Kaniko (no Docker daemon required) ───────────────
+  # ── Build & push backend via Kaniko (IRSA provides ECR credentials) ───────────
   - name: build-backend
     image: plugins/kaniko-ecr
     settings:
@@ -22,7 +22,6 @@ steps:
         - staging-${DRONE_COMMIT_SHA:0:7}
       dockerfile: backend/Dockerfile
       context: backend
-      create_repository: true
 
   # ── Build & push frontend via Kaniko ─────────────────────────────────────────
   - name: build-frontend
@@ -36,7 +35,6 @@ steps:
         - staging-${DRONE_COMMIT_SHA:0:7}
       dockerfile: frontend/Dockerfile
       context: frontend
-      create_repository: true
       build_args:
         # Real API URL injected at runtime via next.config.js proxy — not baked in at build time
         - NEXT_PUBLIC_API_URL=/api
@@ -51,8 +49,7 @@ steps:
       namespace: industrysolutions
       app_name: leafy-energy-markets-backend
       image: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend:staging-${DRONE_COMMIT_SHA:0:7}
-      values_file: environment/staging.yaml
-      values_key: backend
+      values_file: environment/staging-backend.yaml
     depends_on:
       - build-backend
 
@@ -66,8 +63,7 @@ steps:
       namespace: industrysolutions
       app_name: leafy-energy-markets-frontend
       image: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-frontend:staging-${DRONE_COMMIT_SHA:0:7}
-      values_file: environment/staging.yaml
-      values_key: frontend
+      values_file: environment/staging-frontend.yaml
     depends_on:
       - build-frontend
 
@@ -94,7 +90,6 @@ steps:
         - ${DRONE_COMMIT_SHA:0:7}
       dockerfile: backend/Dockerfile
       context: backend
-      create_repository: true
 
   - name: build-frontend
     image: plugins/kaniko-ecr
@@ -107,7 +102,6 @@ steps:
         - ${DRONE_COMMIT_SHA:0:7}
       dockerfile: frontend/Dockerfile
       context: frontend
-      create_repository: true
       build_args:
         - NEXT_PUBLIC_API_URL=/api
 
@@ -120,8 +114,7 @@ steps:
       namespace: industrysolutions
       app_name: leafy-energy-markets-backend
       image: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend:${DRONE_COMMIT_SHA:0:7}
-      values_file: environment/production.yaml
-      values_key: backend
+      values_file: environment/production-backend.yaml
     depends_on:
       - build-backend
 
@@ -134,7 +127,6 @@ steps:
       namespace: industrysolutions
       app_name: leafy-energy-markets-frontend
       image: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-frontend:${DRONE_COMMIT_SHA:0:7}
-      values_file: environment/production.yaml
-      values_key: frontend
+      values_file: environment/production-frontend.yaml
     depends_on:
       - build-frontend

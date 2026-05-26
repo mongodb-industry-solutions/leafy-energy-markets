@@ -1,0 +1,17 @@
+env:
+  NODE_ENV: production
+  AWS_REGION: us-east-1
+
+envSecrets:
+  MONGO_URI: leafy-energy-markets-secrets
+  ANTHROPIC_API_KEY: leafy-energy-markets-secrets
+  AZURE_FOUNDRY_API_KEY: leafy-energy-markets-secrets
+  AZURE_FOUNDRY_ENDPOINT: leafy-energy-markets-secrets
+  AZURE_FOUNDRY_MODEL: leafy-energy-markets-secrets
+  VOYAGE_API_KEY: leafy-energy-markets-secrets
+
+serviceAccount:
+  enabled: true
+  irsa:
+    accountId: "275662791714"
+    roleName: "kanopy-prod-cicd-irsa"

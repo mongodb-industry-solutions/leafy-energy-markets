@@ -49,5 +49,5 @@ app.include_router(audit.router, prefix="/api")
 app.include_router(trading.router, prefix="/api")
 
 @app.get("/")
-def read_root():
-    return {"Hello": "World"}
+def health():
+    return "Server is running"

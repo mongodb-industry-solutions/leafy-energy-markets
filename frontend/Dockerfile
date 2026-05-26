@@ -15,6 +15,8 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 # Build for production (rewrites are baked into the build)
 RUN npm run build
 
-EXPOSE 3000
+EXPOSE 8080
+
+ENV PORT=8080
 
 CMD ["npm", "start"]

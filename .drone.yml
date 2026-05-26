@@ -9,6 +9,13 @@ trigger:
   event:
     - push
 
+# Use the IRSA-annotated service account so Kaniko can push to ECR via IAM role
+metadata:
+  namespace: industrysolutions
+
+node:
+  service_account: kanopy-staging-cicd-irsa
+
 steps:
   # ── Build & push backend via Kaniko (IRSA provides ECR credentials) ───────────
   - name: build-backend
@@ -77,6 +84,12 @@ trigger:
     - main
   event:
     - push
+
+metadata:
+  namespace: industrysolutions
+
+node:
+  service_account: kanopy-prod-cicd-irsa
 
 steps:
   - name: build-backend

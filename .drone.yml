@@ -10,9 +10,9 @@ trigger:
     - push
 
 steps:
-  # ── Build & push backend (IRSA provides ECR credentials automatically) ─────────
+  # ── Build & push backend via Kaniko (no Docker daemon required) ───────────────
   - name: build-backend
-    image: plugins/ecr
+    image: plugins/kaniko-ecr
     settings:
       region: us-east-1
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
@@ -22,10 +22,11 @@ steps:
         - staging-${DRONE_COMMIT_SHA:0:7}
       dockerfile: backend/Dockerfile
       context: backend
+      create_repository: true
 
-  # ── Build & push frontend ──────────────────────────────────────────────────────
+  # ── Build & push frontend via Kaniko ─────────────────────────────────────────
   - name: build-frontend
-    image: plugins/ecr
+    image: plugins/kaniko-ecr
     settings:
       region: us-east-1
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
@@ -35,11 +36,12 @@ steps:
         - staging-${DRONE_COMMIT_SHA:0:7}
       dockerfile: frontend/Dockerfile
       context: frontend
+      create_repository: true
       build_args:
-        # Real API URL is injected at runtime via next.config.js proxy — not baked in at build time
+        # Real API URL injected at runtime via next.config.js proxy — not baked in at build time
         - NEXT_PUBLIC_API_URL=/api
 
-  # ── Deploy backend pod ─────────────────────────────────────────────────────────
+  # ── Deploy backend pod ────────────────────────────────────────────────────────
   - name: deploy-backend-staging
     image: kanopy/drone-kanopy:latest
     settings:
@@ -54,7 +56,7 @@ steps:
     depends_on:
       - build-backend
 
-  # ── Deploy frontend pod ────────────────────────────────────────────────────────
+  # ── Deploy frontend pod ───────────────────────────────────────────────────────
   - name: deploy-frontend-staging
     image: kanopy/drone-kanopy:latest
     settings:
@@ -82,7 +84,7 @@ trigger:
 
 steps:
   - name: build-backend
-    image: plugins/ecr
+    image: plugins/kaniko-ecr
     settings:
       region: us-east-1
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
@@ -92,9 +94,10 @@ steps:
         - ${DRONE_COMMIT_SHA:0:7}
       dockerfile: backend/Dockerfile
       context: backend
+      create_repository: true
 
   - name: build-frontend
-    image: plugins/ecr
+    image: plugins/kaniko-ecr
     settings:
       region: us-east-1
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
@@ -104,6 +107,7 @@ steps:
         - ${DRONE_COMMIT_SHA:0:7}
       dockerfile: frontend/Dockerfile
       context: frontend
+      create_repository: true
       build_args:
         - NEXT_PUBLIC_API_URL=/api
 

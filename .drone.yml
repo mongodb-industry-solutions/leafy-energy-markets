@@ -1,0 +1,151 @@
+---
+kind: pipeline
+type: kubernetes
+name: leafy-energy-markets-staging
+
+trigger:
+  branch:
+    - staging
+  event:
+    - push
+
+# ── Build & push backend ───────────────────────────────────────────────────────
+steps:
+  - name: build-backend
+    image: plugins/ecr
+    settings:
+      access_key:
+        from_secret: ecr_access_key
+      secret_key:
+        from_secret: ecr_secret_key
+      region: us-east-1
+      registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
+      repo: industrysolutions/leafy-energy-markets-backend
+      tags:
+        - staging
+        - staging-${DRONE_COMMIT_SHA:0:7}
+      dockerfile: backend/Dockerfile
+      context: backend
+
+  - name: build-frontend
+    image: plugins/ecr
+    settings:
+      access_key:
+        from_secret: ecr_access_key
+      secret_key:
+        from_secret: ecr_secret_key
+      region: us-east-1
+      registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
+      repo: industrysolutions/leafy-energy-markets-frontend
+      tags:
+        - staging
+        - staging-${DRONE_COMMIT_SHA:0:7}
+      dockerfile: frontend/Dockerfile
+      context: frontend
+      build_args:
+        # Pass a dummy value — real URL is injected by next.config.js API proxy at runtime
+        - NEXT_PUBLIC_API_URL=/api
+
+  # ── Deploy backend pod ────────────────────────────────────────────────────────
+  - name: deploy-backend-staging
+    image: kanopy/drone-kanopy:latest
+    settings:
+      kubernetes_token:
+        from_secret: staging_kubernetes_token
+      kubernetes_server: https://api.staging.corp.mongodb.com
+      namespace: industrysolutions
+      app_name: leafy-energy-markets-backend
+      image: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend:staging-${DRONE_COMMIT_SHA:0:7}
+      values_file: environment/staging.yaml
+      values_key: backend
+    depends_on:
+      - build-backend
+
+  # ── Deploy frontend pod ───────────────────────────────────────────────────────
+  - name: deploy-frontend-staging
+    image: kanopy/drone-kanopy:latest
+    settings:
+      kubernetes_token:
+        from_secret: staging_kubernetes_token
+      kubernetes_server: https://api.staging.corp.mongodb.com
+      namespace: industrysolutions
+      app_name: leafy-energy-markets-frontend
+      image: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-frontend:staging-${DRONE_COMMIT_SHA:0:7}
+      values_file: environment/staging.yaml
+      values_key: frontend
+    depends_on:
+      - build-frontend
+
+---
+kind: pipeline
+type: kubernetes
+name: leafy-energy-markets-production
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+
+steps:
+  - name: build-backend
+    image: plugins/ecr
+    settings:
+      access_key:
+        from_secret: ecr_access_key
+      secret_key:
+        from_secret: ecr_secret_key
+      region: us-east-1
+      registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
+      repo: industrysolutions/leafy-energy-markets-backend
+      tags:
+        - latest
+        - ${DRONE_COMMIT_SHA:0:7}
+      dockerfile: backend/Dockerfile
+      context: backend
+
+  - name: build-frontend
+    image: plugins/ecr
+    settings:
+      access_key:
+        from_secret: ecr_access_key
+      secret_key:
+        from_secret: ecr_secret_key
+      region: us-east-1
+      registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
+      repo: industrysolutions/leafy-energy-markets-frontend
+      tags:
+        - latest
+        - ${DRONE_COMMIT_SHA:0:7}
+      dockerfile: frontend/Dockerfile
+      context: frontend
+      build_args:
+        - NEXT_PUBLIC_API_URL=/api
+
+  - name: deploy-backend-production
+    image: kanopy/drone-kanopy:latest
+    settings:
+      kubernetes_token:
+        from_secret: prod_kubernetes_token
+      kubernetes_server: https://api.prod.corp.mongodb.com
+      namespace: industrysolutions
+      app_name: leafy-energy-markets-backend
+      image: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend:${DRONE_COMMIT_SHA:0:7}
+      values_file: environment/production.yaml
+      values_key: backend
+    depends_on:
+      - build-backend
+
+  - name: deploy-frontend-production
+    image: kanopy/drone-kanopy:latest
+    settings:
+      kubernetes_token:
+        from_secret: prod_kubernetes_token
+      kubernetes_server: https://api.prod.corp.mongodb.com
+      namespace: industrysolutions
+      app_name: leafy-energy-markets-frontend
+      image: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-frontend:${DRONE_COMMIT_SHA:0:7}
+      values_file: environment/production.yaml
+      values_key: frontend
+    depends_on:
+      - build-frontend

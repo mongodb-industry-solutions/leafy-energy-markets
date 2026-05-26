@@ -1,0 +1,70 @@
+# Kanopy production environment values
+# Applied via: helm upgrade --install leafy-energy-markets-{backend,frontend} kanopy/app \
+#   -f environment/production.yaml --namespace industrysolutions
+
+# ── Backend ────────────────────────────────────────────────────────────────────
+backend:
+  image:
+    repository: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend
+    tag: latest
+
+  env:
+    NODE_ENV: production
+
+  envSecrets:
+    MONGO_URI:
+      secretGroup: leafy-energy-markets-secrets
+      key: MONGO_URI
+    ANTHROPIC_API_KEY:
+      secretGroup: leafy-energy-markets-secrets
+      key: ANTHROPIC_API_KEY
+    VOYAGE_API_KEY:
+      secretGroup: leafy-energy-markets-secrets
+      key: VOYAGE_API_KEY
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  serviceAccount:
+    enabled: true
+    irsa:
+      accountId: "275662791714"
+      roleName: kanopy-prod-cicd-irsa
+
+  service:
+    port: 8080
+
+# ── Frontend ───────────────────────────────────────────────────────────────────
+frontend:
+  image:
+    repository: 795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-frontend
+    tag: latest
+
+  env:
+    NODE_ENV: production
+    PORT: "8080"
+    # Internal cluster URL — backend pod is reachable at this address
+    # Do NOT use NEXT_PUBLIC_ prefix here; use the API proxy in next.config.js instead
+    INTERNAL_API_URL: http://leafy-energy-markets-backend:8080
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  serviceAccount:
+    enabled: true
+    irsa:
+      accountId: "275662791714"
+      roleName: kanopy-prod-cicd-irsa
+
+  service:
+    port: 8080

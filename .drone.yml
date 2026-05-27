@@ -1,0 +1,205 @@
+---
+kind: pipeline
+type: kubernetes
+name: staging
+trigger:
+  branch:
+    - staging
+
+steps:
+  - name: publish-backend
+    image: plugins/kaniko-ecr
+    settings:
+      create_repository: true
+      registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
+      repo: industrysolutions/leafy-energy-markets-backend
+      tags:
+        - git-${DRONE_COMMIT_SHA:0:7}
+        - latest
+      dockerfile: backend/Dockerfile
+      context: backend
+      access_key:
+        from_secret: ecr_access_key
+      secret_key:
+        from_secret: ecr_secret_key
+    when:
+      event:
+        - push
+
+  - name: publish-frontend
+    image: plugins/kaniko-ecr
+    settings:
+      create_repository: true
+      registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
+      repo: industrysolutions/leafy-energy-markets-frontend
+      tags:
+        - git-${DRONE_COMMIT_SHA:0:7}
+        - latest
+      dockerfile: frontend/Dockerfile
+      context: frontend
+      build_args:
+        - NEXT_PUBLIC_API_URL=/api
+      access_key:
+        from_secret: ecr_access_key
+      secret_key:
+        from_secret: ecr_secret_key
+    when:
+      event:
+        - push
+
+  - name: deploy-backend-staging
+    image: public.ecr.aws/kanopy/drone-helm:v3
+    settings:
+      chart: mongodb/web-app
+      chart_version: 4.25.0
+      add_repos: [mongodb=https://10gen.github.io/helm-charts]
+      namespace: industrysolutions
+      release: leafy-energy-markets-backend
+      values:
+        - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
+        - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend"
+        - "ingress.enabled=true"
+        - "ingress.hosts[0]=leafy-energy-markets-backend.industrysolutions.staging.corp.mongodb.com"
+        - "mesh.enabled=true"
+        - "resources.limits.cpu=500m"
+        - "resources.limits.memory=512Mi"
+        - "resources.requests.cpu=100m"
+        - "resources.requests.memory=256Mi"
+      api_server: https://api.staging.corp.mongodb.com
+      kubernetes_token:
+        from_secret: staging_kubernetes_token
+      values_files: ["environment/staging-backend.yaml"]
+    when:
+      event:
+        - push
+
+  - name: deploy-frontend-staging
+    image: public.ecr.aws/kanopy/drone-helm:v3
+    settings:
+      chart: mongodb/web-app
+      chart_version: 4.25.0
+      add_repos: [mongodb=https://10gen.github.io/helm-charts]
+      namespace: industrysolutions
+      release: leafy-energy-markets-frontend
+      values:
+        - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
+        - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-frontend"
+        - "ingress.enabled=true"
+        - "ingress.hosts[0]=leafy-energy-markets-frontend.industrysolutions.staging.corp.mongodb.com"
+        - "mesh.enabled=true"
+        - "env.NEXT_PUBLIC_API_URL=https://leafy-energy-markets-backend.industrysolutions.staging.corp.mongodb.com"
+        - "serviceAccount.enabled=false"
+        - "resources.limits.cpu=500m"
+        - "resources.limits.memory=512Mi"
+        - "resources.requests.cpu=100m"
+        - "resources.requests.memory=256Mi"
+      api_server: https://api.staging.corp.mongodb.com
+      kubernetes_token:
+        from_secret: staging_kubernetes_token
+      values_files: ["environment/staging-frontend.yaml"]
+    when:
+      event:
+        - push
+
+---
+kind: pipeline
+type: kubernetes
+name: production
+trigger:
+  branch:
+    - main
+
+steps:
+  - name: publish-backend
+    image: plugins/kaniko-ecr
+    settings:
+      create_repository: true
+      registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
+      repo: industrysolutions/leafy-energy-markets-backend
+      tags:
+        - git-${DRONE_COMMIT_SHA:0:7}
+        - latest
+      dockerfile: backend/Dockerfile
+      context: backend
+      access_key:
+        from_secret: ecr_access_key
+      secret_key:
+        from_secret: ecr_secret_key
+    when:
+      event:
+        - push
+
+  - name: publish-frontend
+    image: plugins/kaniko-ecr
+    settings:
+      create_repository: true
+      registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
+      repo: industrysolutions/leafy-energy-markets-frontend
+      tags:
+        - git-${DRONE_COMMIT_SHA:0:7}
+        - latest
+      dockerfile: frontend/Dockerfile
+      context: frontend
+      build_args:
+        - NEXT_PUBLIC_API_URL=/api
+      access_key:
+        from_secret: ecr_access_key
+      secret_key:
+        from_secret: ecr_secret_key
+    when:
+      event:
+        - push
+
+  - name: deploy-backend-production
+    image: public.ecr.aws/kanopy/drone-helm:v3
+    settings:
+      chart: mongodb/web-app
+      chart_version: 4.25.0
+      add_repos: [mongodb=https://10gen.github.io/helm-charts]
+      namespace: industrysolutions
+      release: leafy-energy-markets-backend
+      values:
+        - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
+        - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend"
+        - "ingress.enabled=true"
+        - "ingress.hosts[0]=leafy-energy-markets-backend.industrysolutions.prod.corp.mongodb.com"
+        - "mesh.enabled=true"
+        - "resources.limits.cpu=500m"
+        - "resources.limits.memory=512Mi"
+        - "resources.requests.cpu=100m"
+        - "resources.requests.memory=256Mi"
+      api_server: https://api.prod.corp.mongodb.com
+      kubernetes_token:
+        from_secret: prod_kubernetes_token
+      values_files: ["environment/production-backend.yaml"]
+    when:
+      event:
+        - push
+
+  - name: deploy-frontend-production
+    image: public.ecr.aws/kanopy/drone-helm:v3
+    settings:
+      chart: mongodb/web-app
+      chart_version: 4.25.0
+      add_repos: [mongodb=https://10gen.github.io/helm-charts]
+      namespace: industrysolutions
+      release: leafy-energy-markets-frontend
+      values:
+        - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
+        - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-frontend"
+        - "ingress.enabled=true"
+        - "ingress.hosts[0]=leafy-energy-markets-frontend.industrysolutions.prod.corp.mongodb.com"
+        - "mesh.enabled=true"
+        - "env.NEXT_PUBLIC_API_URL=https://leafy-energy-markets-backend.industrysolutions.prod.corp.mongodb.com"
+        - "serviceAccount.enabled=false"
+        - "resources.limits.cpu=500m"
+        - "resources.limits.memory=512Mi"
+        - "resources.requests.cpu=100m"
+        - "resources.requests.memory=256Mi"
+      api_server: https://api.prod.corp.mongodb.com
+      kubernetes_token:
+        from_secret: prod_kubernetes_token
+      values_files: ["environment/production-frontend.yaml"]
+    when:
+      event:
+        - push

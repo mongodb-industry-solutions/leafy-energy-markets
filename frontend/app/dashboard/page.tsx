@@ -934,8 +934,9 @@ export default function DashboardPage() {
     const connect = () => {
       if (disposed) return;
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // Use window.location.host so the WS goes through Next.js proxy on all environments
-      ws = new WebSocket(`${proto}//${window.location.host}/api/trading/ws/change-stream`);
+      // /api-ws/ is a dedicated rewrite (next.config.js) for WebSocket — Route Handlers
+      // can't proxy WS upgrades so we use a separate path outside the /api catch-all.
+      ws = new WebSocket(`${proto}//${window.location.host}/api-ws/trading/ws/change-stream`);
 
       ws.onmessage = (e) => {
         try {

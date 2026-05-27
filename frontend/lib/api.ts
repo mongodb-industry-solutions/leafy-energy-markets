@@ -8,15 +8,9 @@ import {
 
 const BASE = '/api';
 
-/**
- * Direct backend URL for SSE streams — bypasses Next.js rewrite proxy which
- * buffers responses and prevents real-time streaming of tool-call events.
- * Telemetry already uses this pattern successfully.
- */
-const SSE_BASE =
-  typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000/api')
-    : '/api';
+// SSE streams go through the same catch-all Route Handler (/api/[...path]/route.ts)
+// which pipes upstreamRes.body directly — no buffering, real-time streaming works fine.
+const SSE_BASE = '/api';
 
 export async function createTariffScenario(
   portfolioId: string,

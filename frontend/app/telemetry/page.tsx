@@ -318,10 +318,10 @@ export default function TelemetryPage() {
       if (filterEventType) params.set('event_type', filterEventType);
       const qs = params.toString();
 
-      // Determine backend host — same host, port 8000
+      // Use /api-ws/ prefix — dedicated WebSocket rewrite in next.config.js that
+      // routes outside the /api catch-all Route Handler (fetch can't upgrade WS).
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const backendHost = window.location.hostname + ':8000';
-      const url = `${proto}//${backendHost}/api/trading/ws/change-stream${qs ? `?${qs}` : ''}`;
+      const url = `${proto}//${window.location.host}/api-ws/trading/ws/change-stream${qs ? `?${qs}` : ''}`;
 
       ws = new WebSocket(url);
       ws.onopen = () => { setConnected(true); setError(null); };

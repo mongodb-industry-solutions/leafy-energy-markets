@@ -912,7 +912,7 @@ export default function DashboardPage() {
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
 
-    // 1. Fetch full state (initial load + periodic refresh for prices/running status)
+    // 1. Fetch full state — auto-start simulation if not running
     const fetchState = async () => {
       try {
         const res = await fetch('/api/trading/state');
@@ -923,6 +923,10 @@ export default function DashboardPage() {
             return data;
           });
           setAlerts(data.alerts ?? []);
+          // Auto-start if simulation is not running
+          if (!data.running) {
+            fetch('/api/trading/start', { method: 'POST' }).catch(() => {});
+          }
         }
       } catch { /* backend not available */ }
     };
@@ -934,8 +938,8 @@ export default function DashboardPage() {
     const connect = () => {
       if (disposed) return;
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const backendHost = window.location.hostname + ':8000';
-      ws = new WebSocket(`${proto}//${backendHost}/api/trading/ws/change-stream`);
+      // Use window.location.host so the WS goes through Next.js proxy on all environments
+      ws = new WebSocket(`${proto}//${window.location.host}/api/trading/ws/change-stream`);
 
       ws.onmessage = (e) => {
         try {

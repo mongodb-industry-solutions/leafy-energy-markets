@@ -1,5 +1,6 @@
 env:
-  NODE_ENV: staging
+  NODE_ENV: production
+  APP_ENV: staging
   AWS_REGION: us-east-1
 
 envSecrets:

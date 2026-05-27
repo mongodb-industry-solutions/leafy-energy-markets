@@ -18,15 +18,18 @@ for _var in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import commands, queries, telemetry, search, advisor, audit, trading
+from app.api.trading import simulator
 from app.infrastructure.db import get_client, close_client
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: get_client() eagerly pings and warms the pool
-    get_client()
+    # Startup: warm DB pool and auto-start the trading simulator
+    db = get_client()["leafy-energy-markets"]
+    simulator.start(db)
     yield
-    # Shutdown: drain pool and release connections
+    # Shutdown: stop simulator and drain pool
+    await simulator.stop()
     close_client()
 
 
@@ -34,8 +37,8 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://frontend:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

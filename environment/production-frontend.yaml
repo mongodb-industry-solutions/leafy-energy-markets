@@ -1,11 +1,7 @@
 env:
   NODE_ENV: production
   AWS_REGION: us-east-1
-  PORT: "8080"
-  INTERNAL_API_URL: http://leafy-energy-markets-backend:8080
+  INTERNAL_API_URL: https://leafy-energy-markets-backend.industrysolutions.prod.corp.mongodb.com
 
 serviceAccount:
-  enabled: true
-  irsa:
-    accountId: "275662791714"
-    roleName: "kanopy-prod-cicd-irsa"
+  enabled: false

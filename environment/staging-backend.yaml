@@ -4,7 +4,6 @@ env:
 
 envSecrets:
   MONGO_URI: leafy-energy-markets-secrets
-  ANTHROPIC_API_KEY: leafy-energy-markets-secrets
   AZURE_FOUNDRY_API_KEY: leafy-energy-markets-secrets
   AZURE_FOUNDRY_ENDPOINT: leafy-energy-markets-secrets
   AZURE_FOUNDRY_MODEL: leafy-energy-markets-secrets

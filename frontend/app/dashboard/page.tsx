@@ -923,10 +923,6 @@ export default function DashboardPage() {
             return data;
           });
           setAlerts(data.alerts ?? []);
-          // Auto-start if simulation is not running
-          if (!data.running) {
-            fetch('/api/trading/start', { method: 'POST' }).catch(() => {});
-          }
         }
       } catch { /* backend not available */ }
     };

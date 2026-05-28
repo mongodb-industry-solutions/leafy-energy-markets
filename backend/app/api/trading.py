@@ -1187,3 +1187,53 @@ async def trading_change_stream_ws(ws: WebSocket):
         pass
     finally:
         stop_event.set()
+
+
+@router.get("/trading/events/stream")
+async def trading_events_sse(
+    stream_type: str | None = None,
+    event_type: str | None = None,
+):
+    """SSE: streams live trading events from MongoDB Change Stream.
+
+    Drop-in replacement for the WebSocket endpoint — identical event payload,
+    delivered as text/event-stream so it works through HTTP proxies and the
+    Next.js Route Handler without requiring a WebSocket upgrade.
+    """
+    match_filter: dict = {"operationType": "insert"}
+    if stream_type:
+        match_filter["fullDocument.streamType"] = stream_type
+    if event_type:
+        match_filter["fullDocument.eventType"] = event_type
+    pipeline = [{"$match": match_filter}]
+
+    q: queue.Queue[dict] = queue.Queue(maxsize=256)
+    stop_event = threading.Event()
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _watch_loop, pipeline, q, stop_event)
+
+    async def generate():
+        try:
+            while True:
+                try:
+                    doc = await asyncio.to_thread(q.get, True, 1.0)
+                    if "_error" in doc:
+                        yield f"data: {json.dumps({'type': 'error', 'message': doc['_error']})}\n\n"
+                    else:
+                        yield f"data: {json.dumps(doc, default=str)}\n\n"
+                except queue.Empty:
+                    yield "data: {\"type\":\"ping\"}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            stop_event.set()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

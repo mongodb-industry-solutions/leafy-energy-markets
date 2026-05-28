@@ -285,9 +285,9 @@ export default function TelemetryPage() {
     } catch { /* ignore */ }
   }, [simRunning]);
 
-  // Connect directly to MongoDB Change Stream endpoint via WebSocket
+  // Connect to MongoDB Change Stream via SSE (works through HTTP proxy, no WS upgrade needed)
   useEffect(() => {
-    let ws: WebSocket | null = null;
+    let abortController: AbortController | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
 
@@ -309,43 +309,57 @@ export default function TelemetryPage() {
       setEvents(prev => [event, ...prev].slice(0, 200));
     };
 
-    const connect = () => {
+    const connect = async () => {
       if (disposed) return;
+      abortController = new AbortController();
 
-      // WebSocket connects directly to the backend (not via Next.js proxy)
       const params = new URLSearchParams();
       if (filterStreamType) params.set('stream_type', filterStreamType);
       if (filterEventType) params.set('event_type', filterEventType);
       const qs = params.toString();
+      const url = `/api/trading/events/stream${qs ? `?${qs}` : ''}`;
 
-      // Use /api-ws/ prefix — dedicated WebSocket rewrite in next.config.js that
-      // routes outside the /api catch-all Route Handler (fetch can't upgrade WS).
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = `${proto}//${window.location.host}/api-ws/trading/ws/change-stream${qs ? `?${qs}` : ''}`;
+      try {
+        const res = await fetch(url, { signal: abortController.signal });
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+        setConnected(true);
+        setError(null);
 
-      ws = new WebSocket(url);
-      ws.onopen = () => { setConnected(true); setError(null); };
-      ws.onmessage = (e) => {
-        try {
-          const doc = JSON.parse(e.data);
-          if (doc.type === 'error') { setError(doc.message); return; }
-          if (doc.type === 'ping') return; // heartbeat, ignore
-          addEvent({
-            streamId: doc.streamId ?? 'UNKNOWN',
-            streamType: doc.streamType ?? 'Unknown',
-            eventType: doc.eventType,
-            timestamp: doc.timestamp,
-            payload: doc.payload ?? {},
-          });
-        } catch { /* malformed */ }
-      };
-      ws.onclose = () => {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const doc = JSON.parse(line.slice(6));
+              if (doc.type === 'error') { setError(doc.message); continue; }
+              if (doc.type === 'ping') continue;
+              addEvent({
+                streamId: doc.streamId ?? 'UNKNOWN',
+                streamType: doc.streamType ?? 'Unknown',
+                eventType: doc.eventType,
+                timestamp: doc.timestamp,
+                payload: doc.payload ?? {},
+              });
+            } catch { /* malformed */ }
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') return;
         setConnected(false);
         if (!disposed) reconnectTimer = setTimeout(connect, 2000);
-      };
-      ws.onerror = () => {
-        // onclose will fire after onerror — reconnect handled there
-      };
+        return;
+      }
+
+      setConnected(false);
+      if (!disposed) reconnectTimer = setTimeout(connect, 2000);
     };
 
     connect();
@@ -353,7 +367,7 @@ export default function TelemetryPage() {
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      ws?.close();
+      abortController?.abort();
     };
   }, [filterStreamType, filterEventType]);
 

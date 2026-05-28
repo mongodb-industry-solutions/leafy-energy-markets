@@ -631,6 +631,11 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
     coll = db[COLLECTION]
 
     async def generate():
+        # Yield immediately so HTTP 200 + SSE headers are flushed before any
+        # async setup. Without this, Istio's idle timeout (15 s) kills the
+        # connection if LLM/MCP setup takes too long — producing a 503.
+        yield f"data: {json.dumps({'type': 'thinking'})}\n\n"
+
         async with AsyncExitStack() as stack:
             try:
                 checkpointer = _get_checkpointer(client)

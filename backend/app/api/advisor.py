@@ -188,7 +188,19 @@ class AdvisorResponse(BaseModel):
 # ── MCP (Model Context Protocol) ─────────────────────────
 
 async def _enter_mcp_client(stack: AsyncExitStack) -> list:
-    """Try to connect MongoDB MCP Server via stdio. Returns tools or [] on failure."""
+    """Try to connect MongoDB MCP Server via stdio. Returns tools or [] on failure.
+
+    Guards against hanging in Docker environments without npx:
+    1. shutil.which() — fast check before spawning the subprocess at all.
+    2. asyncio.wait_for(..., timeout=5) — kills the await if npx is present
+       but the MCP server doesn't initialise in time.
+    """
+    import shutil
+
+    if not shutil.which("npx"):
+        logger.info("npx not found — skipping MCP server (built-in tools only)")
+        return []
+
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -207,10 +219,6 @@ async def _enter_mcp_client(stack: AsyncExitStack) -> list:
                         "--readOnly",
                         "--connectionString",
                         mongo_uri,
-                        # Scope to this database only — prevents the MCP server
-                        # from introspecting other databases on the shared cluster
-                        # (e.g. agent_registry) which can trigger expensive
-                        # $listSearchIndexes operations and cause Atlas auto-scaling.
                         "--database",
                         "leafy-energy-markets",
                     ],
@@ -218,10 +226,13 @@ async def _enter_mcp_client(stack: AsyncExitStack) -> list:
                 }
             }
         )
-        client = await stack.enter_async_context(mcp)
+        client = await asyncio.wait_for(stack.enter_async_context(mcp), timeout=5.0)
         tools = client.get_tools()
         logger.info("MCP server connected — %d tools available", len(tools))
         return tools
+    except asyncio.TimeoutError:
+        logger.info("MCP server timed out — using built-in tools only")
+        return []
     except Exception as e:
         logger.info("MCP server unavailable: %s — using built-in tools only", e)
         return []

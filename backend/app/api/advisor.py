@@ -600,7 +600,12 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                 checkpointer = None
 
             mcp_tools = await _enter_mcp_client(stack)
-            agent, _ = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
+            try:
+                agent, _ = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
+            except Exception as build_exc:
+                logger.exception("Failed to build advisor agent")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Agent setup failed: {build_exc}'})}\n\n"
+                return
 
             from langchain_core.messages import HumanMessage
 

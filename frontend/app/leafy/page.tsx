@@ -7,7 +7,7 @@ import { palette } from '@leafygreen-ui/palette';
 import Badge from '@leafygreen-ui/badge';
 import Icon from '@leafygreen-ui/icon';
 import { Body } from '@leafygreen-ui/typography';
-import { useDarkMode } from '@/components/Providers';
+import { useDarkMode, useChatSession } from '@/components/Providers';
 import ChatContainer from '@/components/leafy/ChatContainer';
 import ChatInput from '@/components/leafy/ChatInput';
 import SuggestedPrompts from '@/components/leafy/SuggestedPrompts';
@@ -50,8 +50,8 @@ function toolCallLabel(name: string): string {
 
 function LeafyContent() {
   const { darkMode } = useDarkMode();
+  const { messages, setMessages, serverSessionId, setServerSessionId, clearChat } = useChatSession();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [activeAgenticSteps, setActiveAgenticSteps] = useState<AgenticStep[] | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
@@ -101,16 +101,14 @@ function LeafyContent() {
 
   // Initialise client-side only to avoid SSR/client hydration mismatch
   const [sessionId, setSessionId] = useState('');
-  const [serverSessionId, setServerSessionId] = useState<string | null>(null);
   useEffect(() => { setSessionId(crypto.randomUUID()); }, []);
 
   const handleNewChat = useCallback(() => {
-    setMessages([]);
-    setServerSessionId(null);
+    clearChat();
     setActiveAgenticSteps(null);
     setIsTyping(false);
     setStreamingMsgId(null);
-  }, []);
+  }, [clearChat]);
 
   const sendMessage = useCallback(async (content: string) => {
     const userMsg: ChatMessage = {
@@ -160,6 +158,7 @@ function LeafyContent() {
     const msgId = `msg-${Date.now()}-advisor`;
     tokenAccumRef.current = '';
     let firstToken = true;
+    let errorHandled = false;
     const steps: AgenticStep[] = [];
     const toolStartTimes: Record<string, number> = {};
     setActiveAgenticSteps([]);
@@ -244,6 +243,7 @@ function LeafyContent() {
         }
       }
     } catch (err) {
+      errorHandled = true;
       setActiveAgenticSteps(steps.length > 0 ? steps : null);
       setStreamingMsgId(null);
       const detail = err instanceof Error ? err.message : String(err);
@@ -260,6 +260,21 @@ function LeafyContent() {
       }
     } finally {
       setIsTyping(false);
+      // If stream closed without a 'done' event (backend crash / dropped connection),
+      // clean up the stuck "selecting tools..." panel and show an error message.
+      if (firstToken && !errorHandled) {
+        setActiveAgenticSteps(null);
+        setStreamingMsgId(null);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-error`,
+            role: 'assistant' as const,
+            content: `**No response received.** The connection was dropped or the backend is still starting up. Please try again.`,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
     }
   }, [serverSessionId, sessionId]);
 

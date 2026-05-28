@@ -1,8 +1,9 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import LeafyGreenProvider from '@leafygreen-ui/leafygreen-provider';
 import EmotionRegistry from './EmotionRegistry';
+import type { ChatMessage } from '@/lib/types';
 
 // ── Dark mode ────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,42 @@ function TradingEventsProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── Chat session (persists across navigation) ────────────────────────────────
+
+interface ChatContextValue {
+  messages: ChatMessage[];
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  serverSessionId: string | null;
+  setServerSessionId: Dispatch<SetStateAction<string | null>>;
+  clearChat: () => void;
+}
+
+const ChatContext = createContext<ChatContextValue>({
+  messages: [],
+  setMessages: () => {},
+  serverSessionId: null,
+  setServerSessionId: () => {},
+  clearChat: () => {},
+});
+
+export const useChatSession = () => useContext(ChatContext);
+
+function ChatSessionProvider({ children }: { children: React.ReactNode }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [serverSessionId, setServerSessionId] = useState<string | null>(null);
+
+  const clearChat = useCallback(() => {
+    setMessages([]);
+    setServerSessionId(null);
+  }, []);
+
+  return (
+    <ChatContext.Provider value={{ messages, setMessages, serverSessionId, setServerSessionId, clearChat }}>
+      {children}
+    </ChatContext.Provider>
+  );
+}
+
 // ── Root provider ─────────────────────────────────────────────────────────────
 
 export default function Providers({ children }: { children: React.ReactNode }) {
@@ -129,7 +166,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       <DarkModeContext.Provider value={{ darkMode, toggleDarkMode }}>
         <LeafyGreenProvider darkMode={darkMode}>
           <TradingEventsProvider>
-            {children}
+            <ChatSessionProvider>
+              {children}
+            </ChatSessionProvider>
           </TradingEventsProvider>
         </LeafyGreenProvider>
       </DarkModeContext.Provider>

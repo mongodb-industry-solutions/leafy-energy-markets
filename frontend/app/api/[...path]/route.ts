@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
 const BACKEND_URL = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const fetchCache = 'force-no-store';
 
-async function proxy(req: NextRequest): Promise<NextResponse> {
+async function proxy(req: NextRequest): Promise<Response> {
   const { pathname, search } = req.nextUrl;
   const upstream = `${BACKEND_URL}${pathname}${search}`;
 
@@ -35,8 +35,15 @@ async function proxy(req: NextRequest): Promise<NextResponse> {
       resHeaders.set(key, value);
     }
   });
+  // Ensure SSE responses are never buffered by Next.js or nginx
+  if ((resHeaders.get('content-type') ?? '').includes('text/event-stream')) {
+    resHeaders.set('Cache-Control', 'no-cache, no-transform');
+    resHeaders.set('X-Accel-Buffering', 'no');
+  }
 
-  return new NextResponse(upstreamRes.body, {
+  // Use native Response (not NextResponse) to avoid Next.js response buffering
+  // on streaming bodies — critical for SSE event-by-event delivery.
+  return new Response(upstreamRes.body, {
     status: upstreamRes.status,
     statusText: upstreamRes.statusText,
     headers: resHeaders,

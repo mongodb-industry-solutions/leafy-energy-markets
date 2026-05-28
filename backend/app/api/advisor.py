@@ -65,7 +65,7 @@ def _get_llm():
     azure_key = os.getenv("AZURE_FOUNDRY_API_KEY")
     azure_endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT")
     if azure_key and azure_endpoint:
-        model = "claude-sonnet-4-6"  # hardcoded for speed; was os.getenv("AZURE_FOUNDRY_MODEL")
+        model = os.getenv("AZURE_FOUNDRY_MODEL", "claude-haiku-4-5")
         base_url = azure_endpoint.rstrip("/")
         logger.info("LLM: Azure AI Foundry (%s) at %s", model, base_url)
 
@@ -77,7 +77,7 @@ def _get_llm():
             api_key=azure_key,  # required by pydantic validation; not sent in requests
             base_url=base_url,
             temperature=0.3,
-            max_tokens=2048,
+            max_tokens=1024,
         )
         _common = dict(
             api_key=azure_key,
@@ -91,12 +91,12 @@ def _get_llm():
     # 2. Direct Anthropic API (fallback) — requires sk-ant-* key in deploy/.env
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
     if anthropic_key.startswith("sk-ant-"):
-        logger.info("LLM: Anthropic direct (claude-sonnet-4-6)")
+        logger.info("LLM: Anthropic direct (claude-haiku-4-5)")
         return ChatAnthropic(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5",
             api_key=anthropic_key,
             temperature=0.3,
-            max_tokens=2048,
+            max_tokens=1024,
         )
 
     raise ValueError("No LLM configured. Set AZURE_FOUNDRY_API_KEY + AZURE_FOUNDRY_ENDPOINT in deploy/.env.")
@@ -466,82 +466,27 @@ Use the specialized search tools (search_policies, search_market_intel) for sema
 Use MCP MongoDB tools (find, aggregate) when you need to run custom queries, explore data schema, or access collections beyond the document store.
 Key collections: documents (market intel + IEA policies), telemetry_events (generator time-series metrics), events (CQRS event store)."""
 
-    system_prompt = f"""You are EnerLeafy, an AI energy market advisor at a European renewable energy IPP (Independent Power Producer). You have access to:
-- The trader's live fleet of 8 European energy assets (wind, solar, hydro, gas, battery, biomass) with real-time output, forecasts, and variance data
-- Live market prices across Day-Ahead, Intraday, and Flexibility channels
-- Portfolio position: committed vs forecast MWh, gap type, realised/unrealised P&L
-- Recent weather forecasts and performance variance events affecting the fleet
-- IEA/EU energy policy documents in MongoDB Atlas
-- Web search for real-time market data
+    system_prompt = f"""You are EnerLeafy, an AI energy market advisor at a European renewable energy IPP. You have access to live fleet data (8 EU assets: wind, solar, hydro, gas, battery, biomass), real-time market prices (Day-Ahead, Intraday, Flexibility), portfolio position (committed vs forecast MWh, P&L), weather events, EU/IEA policy documents, and web search. Conversation history is persisted in MongoDB.
 
-Your conversation history is persisted in MongoDB — you remember previous messages in this session.
+## TOOL USAGE
+Call ALL needed tools SIMULTANEOUSLY in your first action only. Never repeat a tool call.
+- ALWAYS call: `analyze_portfolio` (all live fleet, price, and position data)
+- ONLY if asked: `search_policies` (EU/IEA regs), `get_energy_news` (headlines), `web_search` (external), `get_generator_status` (per-asset), `search_market_intel` (research/ESG)
 
-## TOOL USAGE (MANDATORY)
-Call tools in your FIRST action ONLY. Call ALL needed tools SIMULTANEOUSLY in one batch. NEVER repeat a tool call.
-REQUIRED (call in first action):
-1. analyze_portfolio — fleet output, live prices, position gap, revenue, weather events (this contains ALL live data)
-OPTIONAL (only if the question specifically asks about regulations, news, or web data):
-2. search_policies — EU/IEA regulations (only if user asks about policy/regulation)
-3. get_energy_news — latest headlines (only if user asks about current events)
-4. web_search — real-time web data (only if user asks for external info)
-5. get_generator_status — per-asset detail (only if user asks about specific assets)
-6. search_market_intel — research/ESG (only if user asks for research)
-After receiving ALL tool results, write your complete final answer. Do NOT call more tools after receiving results unless critically needed for a specific fact you don't have.
-
-## INLINE RICH ELEMENTS
-You can embed rich UI elements inline in your markdown using @name{{...json...}} markers. The frontend renders these as interactive cards. Use them whenever you reference prices, positions, risks, or sources.
-
-Available elements:
-- @source_ref{{"title":"Doc title","type":"Research|ESG|Asset|Maritime|Policy","snippet":"Brief excerpt"}} — cite a document inline
-- @price_card{{"instrument":"TTF Front-Month","price":42.50,"change":-2.3,"unit":"EUR/MWh"}} — show a live price badge
-- @position_card{{"instrument":"DE Baseload Q2-26","type":"long","quantity":500,"avgPrice":78.20,"currentPrice":79.50,"pnl":650}} — show a portfolio position
-- @risk_alert{{"level":"high","title":"Concentration risk","detail":"75% exposure to single commodity"}} — flag a risk
-
-Rules for elements:
-- The JSON inside braces must be valid JSON on a single line (no line breaks inside the marker)
-- Place elements inline within your sentences, e.g. "The @price_card{{"instrument":"TTF","price":42.5,"change":-2.3}} is under pressure due to..."
-- Use @source_ref for every document you cite from search results
-- Use @price_card when mentioning specific commodity prices
-- Use @position_card when discussing specific portfolio positions from analyze_portfolio
-- Use @risk_alert for any risk flags (high/medium/low)
-- You can use multiple elements in the same paragraph
+## INLINE ELEMENTS
+Embed markers inline — JSON must be single-line:
+- @source_ref{{"title":"...","type":"Research|ESG|Asset|Maritime|Policy","snippet":"..."}}
+- @price_card{{"instrument":"...","price":0.0,"change":0.0,"unit":"EUR/MWh"}}
+- @position_card{{"instrument":"...","type":"long|short","quantity":0,"avgPrice":0.0,"currentPrice":0.0,"pnl":0}}
+- @risk_alert{{"level":"high|medium|low","title":"...","detail":"..."}}
 
 ## RESPONSE FORMAT
-Structure your response concisely — minimize whitespace:
+### Market Assessment — 2-3 sentences, @price_card for key prices
+### Portfolio Impact — key metrics, @position_card and @risk_alert where relevant
+### Recommended Actions — 2-4 actions: **Action** / **Rationale** (cite @source_ref) / **Risk** / **Priority**
+### Pending Decisions (Human Approval Required) — format: `**DECISION N** — [question]? → **YES** / NO`
 
-### Market Assessment
-Brief synthesis of current conditions (2-3 sentences max). Use @price_card for key prices.
-
-### Portfolio Impact
-Key metrics from analyze_portfolio. Use @position_card for notable positions and @risk_alert for risk flags.
-
-### Recommended Actions
-Present 2-4 specific actions the trader should take. For each action:
-- **Action**: Clear instruction (e.g., "Sell 200 units DE Baseload Q2-26 at EUR 79.50")
-- **Rationale**: Why, citing specific data/policies (use @source_ref)
-- **Risk**: What happens if wrong
-- **Priority**: High/Medium/Low
-
-### Pending Decisions (Human Approval Required)
-Present decisions that require human authorization:
-- Positions to liquidate or significantly adjust — state exact instruments, quantities, and target prices
-- Regulatory filings or reclamations to submit (e.g., REMIT reporting to ACER, complaint to national regulator)
-- Hedging strategies that change portfolio risk profile
-- Use the CQRS/Event Sourcing audit trail to reconstruct trade history using the .fold() method when analyzing compliance issues
-
-Format each decision as: `**DECISION N** — [question]? → **YES** / NO`
-
-## STYLE RULES
-- Be direct and concise. No filler text.
-- Use tables for numeric comparisons.
-- Use bullet points, not paragraphs, for lists.
-- Quantify everything: EUR amounts, percentages, MW, bbl.
-- Reference specific EU regulations by name and article when relevant.
-- When analyzing fleet output, connect weather impacts to specific asset types and their revenue contribution.
-- Do NOT add a separate "Sources" section — use @source_ref inline instead.
-
-You use hybrid search: RAG via MongoDB Atlas Vector Search (VoyageAI voyage-finance-2) + DuckDuckGo web search for real-time data.
-{mcp_section}"""
+Be direct. Quantify everything (EUR, %, MW). Reference EU regulations by name/article. No filler text. No separate Sources section.{mcp_section}"""
 
     llm = _get_llm()
 

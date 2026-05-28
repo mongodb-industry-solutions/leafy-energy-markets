@@ -642,9 +642,9 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
     coll = db[COLLECTION]
 
     async def generate():
-        # Yield immediately so HTTP 200 + SSE headers are flushed before any
-        # async setup. Without this, Istio's idle timeout (15 s) kills the
-        # connection if LLM/MCP setup takes too long — producing a 503.
+        # Yield immediately so HTTP 200 + SSE headers flush before any async
+        # setup. Without this, Istio's 15 s idle timeout kills the connection
+        # producing a 503 before the first real event.
         yield f"data: {json.dumps({'type': 'thinking'})}\n\n"
 
         async with AsyncExitStack() as stack:
@@ -665,8 +665,53 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
             full_answer = ""
             tools_ever_started = False
 
+            # Run astream_events in a background task and drain via a queue.
+            # This lets us send SSE keepalive pings every PING_INTERVAL seconds
+            # while the LLM is inferring — prevents Istio from closing the idle
+            # connection during long model calls (which can take 30–60 s).
+            PING_INTERVAL = 5.0   # seconds between keepalive pings
+            HARD_TIMEOUT  = 300.0 # 5-minute wall-clock cap for the whole call
+
+            q: asyncio.Queue[dict | None] = asyncio.Queue()
+
+            async def _run_agent() -> None:
+                try:
+                    async for ev in agent.astream_events({"messages": messages}, config, version="v2"):
+                        await q.put(ev)
+                except Exception as exc:
+                    await q.put({"__error__": str(exc)})
+                finally:
+                    await q.put(None)  # sentinel — always signal completion
+
+            agent_task = asyncio.create_task(_run_agent())
             try:
-                async for event in agent.astream_events({"messages": messages}, config, version="v2"):
+                deadline = asyncio.get_event_loop().time() + HARD_TIMEOUT
+                error_yielded = False
+
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        logger.warning("Advisor agent exceeded %ss hard timeout", HARD_TIMEOUT)
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'Agent timed out — please try again'})}\n\n"
+                        error_yielded = True
+                        break
+
+                    try:
+                        event = await asyncio.wait_for(q.get(), timeout=min(PING_INTERVAL, remaining))
+                    except asyncio.TimeoutError:
+                        # No event in PING_INTERVAL — send keepalive so Istio doesn't close the stream
+                        yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+                        continue
+
+                    if event is None:
+                        break  # sentinel — agent finished cleanly
+
+                    if "__error__" in event:
+                        logger.error("Streaming advisor error: %s", event["__error__"])
+                        yield f"data: {json.dumps({'type': 'error', 'message': event['__error__']})}\n\n"
+                        error_yielded = True
+                        break
+
                     etype = event["event"]
 
                     if etype == "on_tool_start":
@@ -702,26 +747,29 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                                                 full_answer += text
                                                 yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
 
-                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'tool_calls': tool_calls_used})}\n\n"
+                if not error_yielded:
+                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'tool_calls': tool_calls_used})}\n\n"
 
-                # Save interaction so RAGAS evals can pick up real user queries
-                if full_answer and req.message:
-                    try:
-                        from datetime import datetime, timezone
-                        doc = {
-                            "timestamp": datetime.now(timezone.utc),
-                            "question": req.message[:600],
-                            "answer": full_answer[:1500],
-                            "tool_calls": list(dict.fromkeys(tool_calls_used)),
-                            "session_id": session_id,
-                        }
-                        await asyncio.to_thread(db["advisor_interactions"].insert_one, doc)
-                    except Exception as save_err:
-                        logger.warning("Failed to save advisor interaction: %s", save_err)
+                    if full_answer and req.message:
+                        try:
+                            from datetime import datetime, timezone
+                            doc = {
+                                "timestamp": datetime.now(timezone.utc),
+                                "question": req.message[:600],
+                                "answer": full_answer[:1500],
+                                "tool_calls": list(dict.fromkeys(tool_calls_used)),
+                                "session_id": session_id,
+                            }
+                            await asyncio.to_thread(db["advisor_interactions"].insert_one, doc)
+                        except Exception as save_err:
+                            logger.warning("Failed to save advisor interaction: %s", save_err)
 
-            except Exception as e:
-                logger.exception("Streaming advisor error")
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            finally:
+                agent_task.cancel()
+                try:
+                    await agent_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     return StreamingResponse(
         generate(),

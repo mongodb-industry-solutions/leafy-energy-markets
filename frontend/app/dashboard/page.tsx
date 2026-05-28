@@ -905,14 +905,14 @@ export default function DashboardPage() {
   const mutedColor   = darkMode ? palette.gray.dark1   : palette.gray.light1;
   const panelBg      = darkMode ? '#060e1c'            : palette.white;
 
-  // ── Load initial state + WebSocket Change Stream for incremental updates ──
+  // ── Load initial state + SSE Change Stream for incremental updates ──
   useEffect(() => {
-    let ws: WebSocket | null = null;
+    let sseAbort: AbortController | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
 
-    // 1. Fetch full state (initial load + periodic refresh for prices/running status)
+    // 1. Fetch full state every 3s for prices and running status
     const fetchState = async () => {
       try {
         const res = await fetch('/api/trading/state');
@@ -927,92 +927,101 @@ export default function DashboardPage() {
       } catch { /* backend not available */ }
     };
     fetchState();
-    // Refresh full state every 3s for prices and running status (not in individual events)
     pollTimer = setInterval(fetchState, 3000);
 
-    // 2. WebSocket Change Stream for real-time event-driven updates
-    const connect = () => {
+    // 2. SSE Change Stream for real-time event-driven updates
+    const connect = async () => {
       if (disposed) return;
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const backendHost = window.location.hostname + ':8000';
-      ws = new WebSocket(`${proto}//${backendHost}/api/trading/ws/change-stream`);
+      sseAbort = new AbortController();
+      try {
+        const res = await fetch('/api/trading/events/stream', { signal: sseAbort.signal });
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
-      ws.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data);
-          if (event.type === 'ping' || event.type === 'error') return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-          const p = event.payload ?? {};
-          const eventType = event.eventType;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'ping' || event.type === 'error') continue;
 
-          setState((prev) => {
-            if (!prev) return prev;
-            const next = { ...prev };
+              const p = event.payload ?? {};
+              const eventType = event.eventType;
 
-            switch (eventType) {
-              case 'MeterReadingRecorded': {
-                // Update the specific asset
-                next.assets = prev.assets.map(a =>
-                  a.id === p.assetId
-                    ? { ...a, currentOutputMw: p.currentOutputMw, forecastOutputMw: p.forecastOutputMw, varianceMw: p.varianceMw, utilizationPct: p.utilizationPct, status: p.status, lastUpdated: event.timestamp }
-                    : a
-                );
-                break;
-              }
-              case 'TradeExecuted': {
-                const trade: TradeRecord = {
-                  tradeId: p.tradeId, assetType: p.assetType ?? '', marketChannel: p.marketChannel,
-                  direction: p.direction ?? p.side, quantityMwh: p.quantityMwh, priceEurMwh: p.priceEurMwh,
-                  revenueEur: p.revenueEur, exchange: p.exchange ?? p.counterparty ?? '', executionType: p.executionType, timestamp: event.timestamp,
-                };
-                next.portfolio = { ...prev.portfolio, tradeLog: [trade, ...prev.portfolio.tradeLog].slice(0, 15), realisedPnlEur: prev.portfolio.realisedPnlEur + (p.revenueEur ?? 0) };
-                break;
-              }
-              case 'PnlSnapshotRecorded': {
-                next.portfolio = { ...prev.portfolio, realisedPnlEur: p.realisedPnlEur ?? prev.portfolio.realisedPnlEur, fleetGenerationValueEur: p.fleetGenerationValueEur ?? prev.portfolio.fleetGenerationValueEur, dailyTargetEur: p.dailyTargetEur ?? prev.portfolio.dailyTargetEur };
-                break;
-              }
-              case 'PositionGapDetected': {
-                next.portfolio = { ...prev.portfolio, committedMwh: p.committedMwh ?? prev.portfolio.committedMwh, forecastMwh: p.forecastMwh ?? prev.portfolio.forecastMwh, netGapMwh: p.gapMwh ?? prev.portfolio.netGapMwh, gapType: p.gapType ?? prev.portfolio.gapType };
-                // Add to alerts
-                if (p.severity === 'warning' || p.severity === 'critical') {
-                  setAlerts(a => [{ id: event.id ?? `gap-${Date.now()}`, eventType: 'PositionGapDetected', payload: p, timestamp: event.timestamp }, ...a].slice(0, 10));
+              setState((prev) => {
+                if (!prev) return prev;
+                const next = { ...prev };
+
+                switch (eventType) {
+                  case 'MeterReadingRecorded': {
+                    next.assets = prev.assets.map(a =>
+                      a.id === p.assetId
+                        ? { ...a, currentOutputMw: p.currentOutputMw, forecastOutputMw: p.forecastOutputMw, varianceMw: p.varianceMw, utilizationPct: p.utilizationPct, status: p.status, lastUpdated: event.timestamp }
+                        : a
+                    );
+                    break;
+                  }
+                  case 'TradeExecuted': {
+                    const trade: TradeRecord = {
+                      tradeId: p.tradeId, assetType: p.assetType ?? '', marketChannel: p.marketChannel,
+                      direction: p.direction ?? p.side, quantityMwh: p.quantityMwh, priceEurMwh: p.priceEurMwh,
+                      revenueEur: p.revenueEur, exchange: p.exchange ?? p.counterparty ?? '', executionType: p.executionType, timestamp: event.timestamp,
+                    };
+                    next.portfolio = { ...prev.portfolio, tradeLog: [trade, ...prev.portfolio.tradeLog].slice(0, 15), realisedPnlEur: prev.portfolio.realisedPnlEur + (p.revenueEur ?? 0) };
+                    break;
+                  }
+                  case 'PnlSnapshotRecorded': {
+                    next.portfolio = { ...prev.portfolio, realisedPnlEur: p.realisedPnlEur ?? prev.portfolio.realisedPnlEur, fleetGenerationValueEur: p.fleetGenerationValueEur ?? prev.portfolio.fleetGenerationValueEur, dailyTargetEur: p.dailyTargetEur ?? prev.portfolio.dailyTargetEur };
+                    break;
+                  }
+                  case 'PositionGapDetected': {
+                    next.portfolio = { ...prev.portfolio, committedMwh: p.committedMwh ?? prev.portfolio.committedMwh, forecastMwh: p.forecastMwh ?? prev.portfolio.forecastMwh, netGapMwh: p.gapMwh ?? prev.portfolio.netGapMwh, gapType: p.gapType ?? prev.portfolio.gapType };
+                    if (p.severity === 'warning' || p.severity === 'critical') {
+                      setAlerts(a => [{ id: event.id ?? `gap-${Date.now()}`, eventType: 'PositionGapDetected', payload: p, timestamp: event.timestamp }, ...a].slice(0, 10));
+                    }
+                    break;
+                  }
+                  case 'CapacityAllocationSet': {
+                    const aType = p.assetType;
+                    if (aType && prev.portfolio.allocationsByType[aType]) {
+                      next.portfolio = { ...prev.portfolio, allocationsByType: { ...prev.portfolio.allocationsByType, [aType]: { targetMwh: p.targetMwh, marketChannel: p.marketChannel, priceFloorEur: p.priceFloorEur } }, committedMwh: p.updatedCommittedMwh ?? prev.portfolio.committedMwh, netGapMwh: p.updatedGapMwh ?? prev.portfolio.netGapMwh, gapType: p.gapType ?? prev.portfolio.gapType };
+                    }
+                    break;
+                  }
+                  case 'WindForecastUpdated':
+                  case 'SolarIrradianceForecastUpdated': {
+                    next.assets = prev.assets.map(a =>
+                      a.id === p.assetId
+                        ? { ...a, forecastOutputMw: p.updatedForecastMw, varianceMw: a.currentOutputMw - p.updatedForecastMw }
+                        : a
+                    );
+                    break;
+                  }
+                  case 'WeatherAlertIssued': {
+                    setAlerts(a => [{ id: event.id ?? `alert-${Date.now()}`, eventType: 'WeatherAlertIssued', payload: p, timestamp: event.timestamp }, ...a].slice(0, 10));
+                    break;
+                  }
                 }
-                break;
-              }
-              case 'CapacityAllocationSet': {
-                const aType = p.assetType;
-                if (aType && prev.portfolio.allocationsByType[aType]) {
-                  next.portfolio = { ...prev.portfolio, allocationsByType: { ...prev.portfolio.allocationsByType, [aType]: { targetMwh: p.targetMwh, marketChannel: p.marketChannel, priceFloorEur: p.priceFloorEur } }, committedMwh: p.updatedCommittedMwh ?? prev.portfolio.committedMwh, netGapMwh: p.updatedGapMwh ?? prev.portfolio.netGapMwh, gapType: p.gapType ?? prev.portfolio.gapType };
-                }
-                break;
-              }
-              case 'WindForecastUpdated':
-              case 'SolarIrradianceForecastUpdated': {
-                next.assets = prev.assets.map(a =>
-                  a.id === p.assetId
-                    ? { ...a, forecastOutputMw: p.updatedForecastMw, varianceMw: a.currentOutputMw - p.updatedForecastMw }
-                    : a
-                );
-                break;
-              }
-              case 'WeatherAlertIssued': {
-                setAlerts(a => [{ id: event.id ?? `alert-${Date.now()}`, eventType: 'WeatherAlertIssued', payload: p, timestamp: event.timestamp }, ...a].slice(0, 10));
-                break;
-              }
-            }
 
-            // Update recentEvents
-            next.recentEvents = [event, ...(prev.recentEvents ?? [])].slice(0, 20);
-            next.lastUpdated = event.timestamp ?? new Date().toISOString();
-            return next;
-          });
-        } catch { /* malformed */ }
-      };
-
-      ws.onclose = () => {
-        if (!disposed) reconnectTimer = setTimeout(connect, 2000);
-      };
+                next.recentEvents = [event, ...(prev.recentEvents ?? [])].slice(0, 20);
+                next.lastUpdated = event.timestamp ?? new Date().toISOString();
+                return next;
+              });
+            } catch { /* malformed */ }
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+      }
+      if (!disposed) reconnectTimer = setTimeout(connect, 2000);
     };
     connect();
 
@@ -1020,7 +1029,7 @@ export default function DashboardPage() {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (pollTimer) clearInterval(pollTimer);
-      ws?.close();
+      sseAbort?.abort();
     };
   }, []);
 

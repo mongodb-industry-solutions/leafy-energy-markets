@@ -65,7 +65,7 @@ def _get_llm():
     azure_key = os.getenv("AZURE_FOUNDRY_API_KEY")
     azure_endpoint = os.getenv("AZURE_FOUNDRY_ENDPOINT")
     if azure_key and azure_endpoint:
-        model = "claude-sonnet-4-6"  # hardcoded for speed; was os.getenv("AZURE_FOUNDRY_MODEL")
+        model = os.getenv("AZURE_FOUNDRY_MODEL", "claude-haiku-4-5")
         base_url = azure_endpoint.rstrip("/")
         logger.info("LLM: Azure AI Foundry (%s) at %s", model, base_url)
 
@@ -77,7 +77,7 @@ def _get_llm():
             api_key=azure_key,  # required by pydantic validation; not sent in requests
             base_url=base_url,
             temperature=0.3,
-            max_tokens=2048,
+            max_tokens=1024,
         )
         _common = dict(
             api_key=azure_key,
@@ -91,12 +91,12 @@ def _get_llm():
     # 2. Direct Anthropic API (fallback) — requires sk-ant-* key in deploy/.env
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
     if anthropic_key.startswith("sk-ant-"):
-        logger.info("LLM: Anthropic direct (claude-sonnet-4-6)")
+        logger.info("LLM: Anthropic direct (claude-haiku-4-5)")
         return ChatAnthropic(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5",
             api_key=anthropic_key,
             temperature=0.3,
-            max_tokens=2048,
+            max_tokens=1024,
         )
 
     raise ValueError("No LLM configured. Set AZURE_FOUNDRY_API_KEY + AZURE_FOUNDRY_ENDPOINT in deploy/.env.")
@@ -188,7 +188,19 @@ class AdvisorResponse(BaseModel):
 # ── MCP (Model Context Protocol) ─────────────────────────
 
 async def _enter_mcp_client(stack: AsyncExitStack) -> list:
-    """Try to connect MongoDB MCP Server via stdio. Returns tools or [] on failure."""
+    """Try to connect MongoDB MCP Server via stdio. Returns tools or [] on failure.
+
+    Guards against hanging in Docker environments without npx:
+    1. shutil.which() — fast check before spawning the subprocess at all.
+    2. asyncio.wait_for(..., timeout=5) — kills the await if npx is present
+       but the MCP server doesn't initialise in time.
+    """
+    import shutil
+
+    if not shutil.which("npx"):
+        logger.info("npx not found — skipping MCP server (built-in tools only)")
+        return []
+
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -207,10 +219,6 @@ async def _enter_mcp_client(stack: AsyncExitStack) -> list:
                         "--readOnly",
                         "--connectionString",
                         mongo_uri,
-                        # Scope to this database only — prevents the MCP server
-                        # from introspecting other databases on the shared cluster
-                        # (e.g. agent_registry) which can trigger expensive
-                        # $listSearchIndexes operations and cause Atlas auto-scaling.
                         "--database",
                         "leafy-energy-markets",
                     ],
@@ -218,10 +226,13 @@ async def _enter_mcp_client(stack: AsyncExitStack) -> list:
                 }
             }
         )
-        client = await stack.enter_async_context(mcp)
+        client = await asyncio.wait_for(stack.enter_async_context(mcp), timeout=5.0)
         tools = client.get_tools()
         logger.info("MCP server connected — %d tools available", len(tools))
         return tools
+    except asyncio.TimeoutError:
+        logger.info("MCP server timed out — using built-in tools only")
+        return []
     except Exception as e:
         logger.info("MCP server unavailable: %s — using built-in tools only", e)
         return []
@@ -455,82 +466,29 @@ Use the specialized search tools (search_policies, search_market_intel) for sema
 Use MCP MongoDB tools (find, aggregate) when you need to run custom queries, explore data schema, or access collections beyond the document store.
 Key collections: documents (market intel + IEA policies), telemetry_events (generator time-series metrics), events (CQRS event store)."""
 
-    system_prompt = f"""You are EnerLeafy, an AI energy market advisor at a European renewable energy IPP (Independent Power Producer). You have access to:
-- The trader's live fleet of 8 European energy assets (wind, solar, hydro, gas, battery, biomass) with real-time output, forecasts, and variance data
-- Live market prices across Day-Ahead, Intraday, and Flexibility channels
-- Portfolio position: committed vs forecast MWh, gap type, realised/unrealised P&L
-- Recent weather forecasts and performance variance events affecting the fleet
-- IEA/EU energy policy documents in MongoDB Atlas
-- Web search for real-time market data
+    system_prompt = f"""You are EnerLeafy, an AI energy market advisor at a European renewable energy IPP. You have access to live fleet data (8 EU assets: wind, solar, hydro, gas, battery, biomass), real-time market prices (Day-Ahead, Intraday, Flexibility), portfolio position (committed vs forecast MWh, P&L), weather events, EU/IEA policy documents, and web search.
 
-Your conversation history is persisted in MongoDB — you remember previous messages in this session.
-
-## TOOL USAGE (MANDATORY)
-Call tools in your FIRST action ONLY. Call ALL needed tools SIMULTANEOUSLY in one batch. NEVER repeat a tool call.
-REQUIRED (call in first action):
-1. analyze_portfolio — fleet output, live prices, position gap, revenue, weather events (this contains ALL live data)
-OPTIONAL (only if the question specifically asks about regulations, news, or web data):
-2. search_policies — EU/IEA regulations (only if user asks about policy/regulation)
-3. get_energy_news — latest headlines (only if user asks about current events)
-4. web_search — real-time web data (only if user asks for external info)
-5. get_generator_status — per-asset detail (only if user asks about specific assets)
-6. search_market_intel — research/ESG (only if user asks for research)
-After receiving ALL tool results, write your complete final answer. Do NOT call more tools after receiving results unless critically needed for a specific fact you don't have.
-
-## INLINE RICH ELEMENTS
-You can embed rich UI elements inline in your markdown using @name{{...json...}} markers. The frontend renders these as interactive cards. Use them whenever you reference prices, positions, risks, or sources.
-
-Available elements:
-- @source_ref{{"title":"Doc title","type":"Research|ESG|Asset|Maritime|Policy","snippet":"Brief excerpt"}} — cite a document inline
-- @price_card{{"instrument":"TTF Front-Month","price":42.50,"change":-2.3,"unit":"EUR/MWh"}} — show a live price badge
-- @position_card{{"instrument":"DE Baseload Q2-26","type":"long","quantity":500,"avgPrice":78.20,"currentPrice":79.50,"pnl":650}} — show a portfolio position
-- @risk_alert{{"level":"high","title":"Concentration risk","detail":"75% exposure to single commodity"}} — flag a risk
-
-Rules for elements:
-- The JSON inside braces must be valid JSON on a single line (no line breaks inside the marker)
-- Place elements inline within your sentences, e.g. "The @price_card{{"instrument":"TTF","price":42.5,"change":-2.3}} is under pressure due to..."
-- Use @source_ref for every document you cite from search results
-- Use @price_card when mentioning specific commodity prices
-- Use @position_card when discussing specific portfolio positions from analyze_portfolio
-- Use @risk_alert for any risk flags (high/medium/low)
-- You can use multiple elements in the same paragraph
+## TOOL USAGE
+Call ALL needed tools SIMULTANEOUSLY in your first action. Never repeat a tool call.
+- ALWAYS call: `analyze_portfolio` (live fleet, prices, position)
+- ONLY if asked: `search_policies`, `get_energy_news`, `web_search`, `get_generator_status`, `search_market_intel`
 
 ## RESPONSE FORMAT
-Structure your response concisely — minimize whitespace:
+Use clean markdown only — no JSON markers, no embedded code blocks.
 
 ### Market Assessment
-Brief synthesis of current conditions (2-3 sentences max). Use @price_card for key prices.
+2-3 sentences. State key prices (EUR/MWh) and market direction inline.
 
 ### Portfolio Impact
-Key metrics from analyze_portfolio. Use @position_card for notable positions and @risk_alert for risk flags.
+Key metrics as a short table or bullet list: output, committed, gap, P&L vs target.
 
 ### Recommended Actions
-Present 2-4 specific actions the trader should take. For each action:
-- **Action**: Clear instruction (e.g., "Sell 200 units DE Baseload Q2-26 at EUR 79.50")
-- **Rationale**: Why, citing specific data/policies (use @source_ref)
-- **Risk**: What happens if wrong
-- **Priority**: High/Medium/Low
+2-4 numbered actions. For each: **Action** — rationale — risk — priority.
 
-### Pending Decisions (Human Approval Required)
-Present decisions that require human authorization:
-- Positions to liquidate or significantly adjust — state exact instruments, quantities, and target prices
-- Regulatory filings or reclamations to submit (e.g., REMIT reporting to ACER, complaint to national regulator)
-- Hedging strategies that change portfolio risk profile
-- Use the CQRS/Event Sourcing audit trail to reconstruct trade history using the .fold() method when analyzing compliance issues
+### Pending Decisions
+`**DECISION N** — [question]? → YES / NO`
 
-Format each decision as: `**DECISION N** — [question]? → **YES** / NO`
-
-## STYLE RULES
-- Be direct and concise. No filler text.
-- Use tables for numeric comparisons.
-- Use bullet points, not paragraphs, for lists.
-- Quantify everything: EUR amounts, percentages, MW, bbl.
-- Reference specific EU regulations by name and article when relevant.
-- When analyzing fleet output, connect weather impacts to specific asset types and their revenue contribution.
-- Do NOT add a separate "Sources" section — use @source_ref inline instead.
-
-You use hybrid search: RAG via MongoDB Atlas Vector Search (VoyageAI voyage-finance-2) + DuckDuckGo web search for real-time data.
-{mcp_section}"""
+Be direct. Quantify everything (EUR, %, MW). Reference EU regulations by name/article. No filler text.{mcp_section}"""
 
     llm = _get_llm()
 
@@ -631,6 +589,11 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
     coll = db[COLLECTION]
 
     async def generate():
+        # Yield immediately so HTTP 200 + SSE headers flush before any async
+        # setup. Without this, Istio's 15 s idle timeout kills the connection
+        # producing a 503 before the first real event.
+        yield f"data: {json.dumps({'type': 'thinking'})}\n\n"
+
         async with AsyncExitStack() as stack:
             try:
                 checkpointer = _get_checkpointer(client)
@@ -639,7 +602,12 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                 checkpointer = None
 
             mcp_tools = await _enter_mcp_client(stack)
-            agent, _ = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
+            try:
+                agent, _ = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
+            except Exception as build_exc:
+                logger.exception("Failed to build advisor agent")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Agent setup failed: {build_exc}'})}\n\n"
+                return
 
             from langchain_core.messages import HumanMessage
 
@@ -649,8 +617,53 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
             full_answer = ""
             tools_ever_started = False
 
+            # Run astream_events in a background task and drain via a queue.
+            # This lets us send SSE keepalive pings every PING_INTERVAL seconds
+            # while the LLM is inferring — prevents Istio from closing the idle
+            # connection during long model calls (which can take 30–60 s).
+            PING_INTERVAL = 5.0   # seconds between keepalive pings
+            HARD_TIMEOUT  = 300.0 # 5-minute wall-clock cap for the whole call
+
+            q: asyncio.Queue[dict | None] = asyncio.Queue()
+
+            async def _run_agent() -> None:
+                try:
+                    async for ev in agent.astream_events({"messages": messages}, config, version="v2"):
+                        await q.put(ev)
+                except Exception as exc:
+                    await q.put({"__error__": str(exc)})
+                finally:
+                    await q.put(None)  # sentinel — always signal completion
+
+            agent_task = asyncio.create_task(_run_agent())
             try:
-                async for event in agent.astream_events({"messages": messages}, config, version="v2"):
+                deadline = asyncio.get_event_loop().time() + HARD_TIMEOUT
+                error_yielded = False
+
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        logger.warning("Advisor agent exceeded %ss hard timeout", HARD_TIMEOUT)
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'Agent timed out — please try again'})}\n\n"
+                        error_yielded = True
+                        break
+
+                    try:
+                        event = await asyncio.wait_for(q.get(), timeout=min(PING_INTERVAL, remaining))
+                    except asyncio.TimeoutError:
+                        # No event in PING_INTERVAL — send keepalive so Istio doesn't close the stream
+                        yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+                        continue
+
+                    if event is None:
+                        break  # sentinel — agent finished cleanly
+
+                    if "__error__" in event:
+                        logger.error("Streaming advisor error: %s", event["__error__"])
+                        yield f"data: {json.dumps({'type': 'error', 'message': event['__error__']})}\n\n"
+                        error_yielded = True
+                        break
+
                     etype = event["event"]
 
                     if etype == "on_tool_start":
@@ -686,26 +699,29 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                                                 full_answer += text
                                                 yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
 
-                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'tool_calls': tool_calls_used})}\n\n"
+                if not error_yielded:
+                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'tool_calls': tool_calls_used})}\n\n"
 
-                # Save interaction so RAGAS evals can pick up real user queries
-                if full_answer and req.message:
-                    try:
-                        from datetime import datetime, timezone
-                        doc = {
-                            "timestamp": datetime.now(timezone.utc),
-                            "question": req.message[:600],
-                            "answer": full_answer[:1500],
-                            "tool_calls": list(dict.fromkeys(tool_calls_used)),
-                            "session_id": session_id,
-                        }
-                        await asyncio.to_thread(db["advisor_interactions"].insert_one, doc)
-                    except Exception as save_err:
-                        logger.warning("Failed to save advisor interaction: %s", save_err)
+                    if full_answer and req.message:
+                        try:
+                            from datetime import datetime, timezone
+                            doc = {
+                                "timestamp": datetime.now(timezone.utc),
+                                "question": req.message[:600],
+                                "answer": full_answer[:1500],
+                                "tool_calls": list(dict.fromkeys(tool_calls_used)),
+                                "session_id": session_id,
+                            }
+                            await asyncio.to_thread(db["advisor_interactions"].insert_one, doc)
+                        except Exception as save_err:
+                            logger.warning("Failed to save advisor interaction: %s", save_err)
 
-            except Exception as e:
-                logger.exception("Streaming advisor error")
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            finally:
+                agent_task.cancel()
+                try:
+                    await agent_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     return StreamingResponse(
         generate(),

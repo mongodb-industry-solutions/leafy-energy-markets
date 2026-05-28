@@ -23,10 +23,10 @@ from app.infrastructure.db import get_client, close_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: get_client() eagerly pings and warms the pool
+    # Startup: warm DB pool
     get_client()
     yield
-    # Shutdown: drain pool and release connections
+    # Shutdown: drain pool
     close_client()
 
 
@@ -34,8 +34,8 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://frontend:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

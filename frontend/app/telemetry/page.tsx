@@ -8,7 +8,8 @@ import Button from '@leafygreen-ui/button';
 import { H3, Body } from '@leafygreen-ui/typography';
 import { palette } from '@leafygreen-ui/palette';
 import Icon from '@leafygreen-ui/icon';
-import { useDarkMode } from '@/components/Providers';
+import { useDarkMode, useTradingEvents } from '@/components/Providers';
+import type { TradingEvent } from '@/components/Providers';
 import PageHeader from '@/components/shared/PageHeader';
 
 // ─── Types ────────────────────────────────────
@@ -25,14 +26,7 @@ interface EventSchema {
   payloadFields: PayloadField[];
 }
 
-interface TradingEvent {
-  streamId: string;
-  streamType: string;
-  eventType: string;
-  timestamp: string;
-  payload: Record<string, unknown>;
-  metadata?: { source: string; schemaVersion: number };
-}
+// TradingEvent is imported from Providers (shared context)
 
 interface AssetStats {
   eventCount: number;
@@ -250,16 +244,21 @@ function SchemaExplorer({
 
 export default function TelemetryPage() {
   const { darkMode } = useDarkMode();
+  const { events: allEvents, connected } = useTradingEvents();
   const [schemas, setSchemas] = useState<Record<string, EventSchema>>({});
-  const [events, setEvents] = useState<TradingEvent[]>([]);
   const [assetStats, setAssetStats] = useState<Record<string, AssetStats>>({});
-  const [connected, setConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
   const [filterStreamType, setFilterStreamType] = useState('');
   const [filterEventType, setFilterEventType] = useState('');
   const [expandedEvent, setExpandedEvent] = useState<number | null>(null);
   const [simRunning, setSimRunning] = useState(false);
   const recentTimestampsRef = useRef<Record<string, number[]>>({});
+
+  // Apply filters client-side from the shared event stream
+  const events = allEvents
+    .filter(e => !filterStreamType || e.streamType === filterStreamType)
+    .filter(e => !filterEventType || e.eventType === filterEventType)
+    .slice(0, 200);
 
   const borderColor = darkMode ? palette.gray.dark2 : palette.gray.light2;
   const textColor = darkMode ? palette.gray.light1 : palette.gray.dark1;
@@ -285,97 +284,21 @@ export default function TelemetryPage() {
     } catch { /* ignore */ }
   }, [simRunning]);
 
-  // Connect directly to MongoDB Change Stream endpoint via WebSocket
+  // Rebuild assetStats whenever the shared event stream updates
   useEffect(() => {
-    let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let disposed = false;
-
-    // Reset
-    setEvents([]);
-    setAssetStats({});
-    recentTimestampsRef.current = {};
-    setConnected(false);
-
-    const addEvent = (event: TradingEvent) => {
-      const now = Date.now();
+    const now = Date.now();
+    const stats: Record<string, AssetStats> = {};
+    for (const event of allEvents) {
       const key = event.streamId;
       if (!recentTimestampsRef.current[key]) recentTimestampsRef.current[key] = [];
-      recentTimestampsRef.current[key].push(now);
-      setAssetStats(prev => {
-        const existing = prev[key] || { eventCount: 0, lastEvent: null, recentTimestamps: [] };
-        return { ...prev, [key]: { eventCount: existing.eventCount + 1, lastEvent: event, recentTimestamps: [] } };
-      });
-      setEvents(prev => [event, ...prev].slice(0, 200));
-    };
+      if (!stats[key]) stats[key] = { eventCount: 0, lastEvent: null, recentTimestamps: [] };
+      stats[key].eventCount += 1;
+      stats[key].lastEvent = event;
+      stats[key].recentTimestamps = (recentTimestampsRef.current[key] ?? []).filter(t => now - t < 5000);
+    }
+    setAssetStats(stats);
+  }, [allEvents]);
 
-    const connect = () => {
-      if (disposed) return;
-
-      // WebSocket connects directly to the backend (not via Next.js proxy)
-      const params = new URLSearchParams();
-      if (filterStreamType) params.set('stream_type', filterStreamType);
-      if (filterEventType) params.set('event_type', filterEventType);
-      const qs = params.toString();
-
-      // Determine backend host — same host, port 8000
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const backendHost = window.location.hostname + ':8000';
-      const url = `${proto}//${backendHost}/api/trading/ws/change-stream${qs ? `?${qs}` : ''}`;
-
-      ws = new WebSocket(url);
-      ws.onopen = () => { setConnected(true); setError(null); };
-      ws.onmessage = (e) => {
-        try {
-          const doc = JSON.parse(e.data);
-          if (doc.type === 'error') { setError(doc.message); return; }
-          if (doc.type === 'ping') return; // heartbeat, ignore
-          addEvent({
-            streamId: doc.streamId ?? 'UNKNOWN',
-            streamType: doc.streamType ?? 'Unknown',
-            eventType: doc.eventType,
-            timestamp: doc.timestamp,
-            payload: doc.payload ?? {},
-          });
-        } catch { /* malformed */ }
-      };
-      ws.onclose = () => {
-        setConnected(false);
-        if (!disposed) reconnectTimer = setTimeout(connect, 2000);
-      };
-      ws.onerror = () => {
-        // onclose will fire after onerror — reconnect handled there
-      };
-    };
-
-    connect();
-
-    return () => {
-      disposed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      ws?.close();
-    };
-  }, [filterStreamType, filterEventType]);
-
-  // Compute events/sec every second
-  useEffect(() => {
-    const id = setInterval(() => {
-      const now = Date.now();
-      const window = 5000;
-      setAssetStats(prev => {
-        const next = { ...prev };
-        for (const key of Object.keys(recentTimestampsRef.current)) {
-          const ts = recentTimestampsRef.current[key].filter(t => now - t < window);
-          recentTimestampsRef.current[key] = ts;
-          if (next[key]) {
-            next[key] = { ...next[key], recentTimestamps: ts };
-          }
-        }
-        return next;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
 
   const totalEventsPerSec = Object.values(recentTimestampsRef.current)
     .reduce((s, ts) => s + ts.filter(t => Date.now() - t < 5000).length / 5, 0);
@@ -406,7 +329,7 @@ export default function TelemetryPage() {
       {/* Status bar */}
       <div className={css`display: flex; align-items: center; gap: 12px; flex-wrap: wrap;`}>
         <Badge variant={connected ? 'green' : 'yellow'}>
-          {connected ? 'WebSocket · Change Stream' : 'Connecting...'}
+          {connected ? 'SSE · Change Stream' : 'Connecting...'}
         </Badge>
         <span className={css`font-size: 12px; color: ${textColor};`}>
           {events.length} events received · {totalEventsPerSec.toFixed(1)} events/sec
@@ -450,7 +373,7 @@ export default function TelemetryPage() {
           <div className={css`display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;`}>
             <H3 darkMode={darkMode}>Live Event Feed</H3>
             <span className={css`font-size: 11px; color: ${mutedColor};`}>
-              MongoDB Change Stream → WebSocket → Browser
+              MongoDB Change Stream → SSE → Browser
             </span>
           </div>
 

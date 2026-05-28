@@ -1,8 +1,10 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import LeafyGreenProvider from '@leafygreen-ui/leafygreen-provider';
 import EmotionRegistry from './EmotionRegistry';
+
+// ── Dark mode ────────────────────────────────────────────────────────────────
 
 interface DarkModeContextValue {
   darkMode: boolean;
@@ -16,6 +18,108 @@ const DarkModeContext = createContext<DarkModeContextValue>({
 
 export const useDarkMode = () => useContext(DarkModeContext);
 
+// ── Trading events (SSE change stream) ───────────────────────────────────────
+// Kept at the provider level so the connection survives page navigation.
+// The telemetry page reads from this context and applies its own filters
+// client-side, avoiding a reconnect on every tab switch.
+
+export interface TradingEvent {
+  streamId: string;
+  streamType: string;
+  eventType: string;
+  timestamp: string;
+  payload: Record<string, unknown>;
+  metadata?: { source: string; schemaVersion: number };
+}
+
+interface TradingEventsContextValue {
+  events: TradingEvent[];
+  connected: boolean;
+}
+
+const TradingEventsContext = createContext<TradingEventsContextValue>({
+  events: [],
+  connected: false,
+});
+
+export const useTradingEvents = () => useContext(TradingEventsContext);
+
+function TradingEventsProvider({ children }: { children: React.ReactNode }) {
+  const [events, setEvents] = useState<TradingEvent[]>([]);
+  const [connected, setConnected] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disposedRef = useRef(false);
+
+  useEffect(() => {
+    disposedRef.current = false;
+
+    const connect = async () => {
+      if (disposedRef.current) return;
+      abortRef.current = new AbortController();
+
+      try {
+        const res = await fetch('/api/trading/events/stream', {
+          signal: abortRef.current.signal,
+        });
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+        setConnected(true);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const doc = JSON.parse(line.slice(6));
+              if (doc.type === 'ping' || doc.type === 'error') continue;
+              const event: TradingEvent = {
+                streamId: doc.streamId ?? 'UNKNOWN',
+                streamType: doc.streamType ?? 'Unknown',
+                eventType: doc.eventType,
+                timestamp: doc.timestamp,
+                payload: doc.payload ?? {},
+                metadata: doc.metadata,
+              };
+              setEvents(prev => [event, ...prev].slice(0, 500));
+            } catch { /* malformed */ }
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+      }
+
+      setConnected(false);
+      if (!disposedRef.current) {
+        reconnectRef.current = setTimeout(connect, 2000);
+      }
+    };
+
+    connect();
+
+    return () => {
+      disposedRef.current = true;
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  return (
+    <TradingEventsContext.Provider value={{ events, connected }}>
+      {children}
+    </TradingEventsContext.Provider>
+  );
+}
+
+// ── Root provider ─────────────────────────────────────────────────────────────
+
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [darkMode, setDarkMode] = useState(true);
   const toggleDarkMode = useCallback(() => setDarkMode((prev) => !prev), []);
@@ -24,7 +128,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     <EmotionRegistry>
       <DarkModeContext.Provider value={{ darkMode, toggleDarkMode }}>
         <LeafyGreenProvider darkMode={darkMode}>
-          {children}
+          <TradingEventsProvider>
+            {children}
+          </TradingEventsProvider>
         </LeafyGreenProvider>
       </DarkModeContext.Provider>
     </EmotionRegistry>

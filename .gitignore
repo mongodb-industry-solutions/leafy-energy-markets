@@ -49,3 +49,6 @@ iea-data/
 # Local setup scripts (contain or handle secrets — keep off remote)
 setup-drone-secrets.sh
 setup-kanopy-secrets.sh
+
+# Local utility scripts
+bin/

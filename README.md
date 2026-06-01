@@ -4,7 +4,7 @@ A European renewable energy trading platform built on MongoDB Atlas, demonstrati
 
 ## Architecture
 
-![System Architecture](frontend/img/Energy%20Trading%20Platforms.jpg)
+![System Architecture](frontend/public/img/architecture.jpeg)
 
 ## Features
 

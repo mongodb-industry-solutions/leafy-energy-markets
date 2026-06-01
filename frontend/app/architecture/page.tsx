@@ -50,21 +50,22 @@ export default function ArchitecturePage() {
         subtitle="System architecture diagram"
       />
 
-      {/* Architecture diagram — constrained to viewport height */}
-      <div style={{ width: '100%' }}>
+      {/* Architecture diagram — full width, native resolution, no compression */}
+      <div style={{ width: '100%', overflowX: 'auto' }}>
         <Image
           src="/img/architecture.jpeg"
           alt="System Architecture Diagram"
           width={1920}
           height={1080}
+          quality={100}
           style={{
             width: '100%',
             height: 'auto',
-            maxHeight: 'calc(100vh - 180px)',
-            objectFit: 'contain',
             borderRadius: '12px',
+            display: 'block',
           }}
           priority
+          unoptimized
         />
       </div>
 

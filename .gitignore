@@ -50,5 +50,10 @@ iea-data/
 setup-drone-secrets.sh
 setup-kanopy-secrets.sh
 
+# CI/CD and deployment config (keep off remote)
+.drone.yml
+deploy/
+environment/
+
 # Local utility scripts
 bin/

@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import PageHeader from '@/components/shared/PageHeader';
 import { useDarkMode } from '@/components/Providers';
 import { palette } from '@leafygreen-ui/palette';
@@ -50,22 +49,15 @@ export default function ArchitecturePage() {
         subtitle="System architecture diagram"
       />
 
-      {/* Architecture diagram — full width, native resolution, no compression */}
-      <div style={{ width: '100%', overflowX: 'auto' }}>
-        <Image
+      {/* Architecture diagram — rendered at native 960×540, centered, no upscaling */}
+      <div style={{ display: 'flex', justifyContent: 'center', overflowX: 'auto' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
           src="/img/architecture.jpeg"
           alt="System Architecture Diagram"
-          width={1920}
-          height={1080}
-          quality={100}
-          style={{
-            width: '100%',
-            height: 'auto',
-            borderRadius: '12px',
-            display: 'block',
-          }}
-          priority
-          unoptimized
+          width={960}
+          height={540}
+          style={{ borderRadius: '12px', display: 'block' }}
         />
       </div>
 

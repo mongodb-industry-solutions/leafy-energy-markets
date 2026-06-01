@@ -1,8 +1,0 @@
-env:
-  NODE_ENV: production
-  APP_ENV: staging
-  AWS_REGION: us-east-1
-  INTERNAL_API_URL: http://leafy-energy-markets-backend-web-app
-
-serviceAccount:
-  enabled: false

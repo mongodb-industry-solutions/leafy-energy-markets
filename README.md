@@ -4,44 +4,7 @@ A European renewable energy trading platform built on MongoDB Atlas, demonstrati
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│              Next.js 14 Frontend (LeafyGreen UI)                         │
-│  /dashboard  /leafy  /audit  /cqrs  /architecture                       │
-└──────┬──────────────────────────────┬────────────────────┬───────────────┘
-       │                              │                    │
- POST /api/*                    GET /api/*           SSE /api/trading
- (Commands)                     (Queries)            /stream (1s)
-       │                              │                    │
-┌──────▼──────────────┐  ┌────────────▼──────────────┐  ┌──▼──────────────┐
-│  Command Handlers   │  │     Query Handlers         │  │  Trading        │
-│ ┌─────────────────┐ │  │ ┌────────────────────────┐ │  │  Simulator      │
-│ │ Validate + Exec │ │  │ │ Read from Projections  │ │  │  8 EU assets    │
-│ │ Record Event    │ │  │ │ Event Stream Replay    │ │  │  1s tick loop   │
-│ └────────┬────────┘ │  │ │ fold() reconstruction  │ │  │  weather/trade  │
-└──────────┼──────────┘  │ └───────────▲────────────┘ │  └────────┬───────┘
-           │             └─────────────┼──────────────┘           │
-           │  insert_one()             │                          │
-           │  (append-only)      Change Streams              SSE broadcast
-           │                           │                    (full state/1s)
-┌──────────▼───────────────────────────┼──────────────────────────────────┐
-│                          MongoDB Atlas                                    │
-│                                                                          │
-│  ┌──────────────────────┐  ┌─────────────────────┐  ┌─────────────────┐  │
-│  │ events (append-only) │  │ Read Model Colls    │  │ advisor_        │  │
-│  │                      │  │                     │  │ interactions    │  │
-│  │ { streamId, version, │  │ tariff_scenarios    │  │ (agent memory)  │  │
-│  │   eventType, payload │  │                     │  │                 │  │
-│  │   timestamp,         │  │ Built via Change    │  │                 │  │
-│  │   metadata }         │  │ Streams from events │  │                 │  │
-│  └──────────┬───────────┘  └─────────────────────┘  └─────────────────┘  │
-│             │                                                             │
-│  ┌──────────▼────────────────────────────────────────────────────────┐   │
-│  │ market_documents — VoyageAI embeddings (voyage-finance-2, 1024d)  │   │
-│  │ Hybrid vector + BM25 text search via Atlas Search                 │   │
-│  └───────────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+![System Architecture](frontend/img/Energy%20Trading%20Platforms.jpg)
 
 ## Features
 

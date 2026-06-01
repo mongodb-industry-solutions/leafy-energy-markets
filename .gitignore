@@ -52,7 +52,6 @@ setup-kanopy-secrets.sh
 
 # Deployment config (keep off remote)
 deploy/
-environment/
 
 # Local utility scripts
 bin/

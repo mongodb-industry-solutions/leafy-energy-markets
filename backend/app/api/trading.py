@@ -687,6 +687,7 @@ class TradingSimulator:
             "recentEvents": list(self._recent_events)[:20],
             "running": self._running,
             "persistence": "mongodb" if self._db is not None else "in-memory",
+            "persistenceErrors": self._persist_errors,
             "lastUpdated": datetime.now(timezone.utc).isoformat(),
         }
 

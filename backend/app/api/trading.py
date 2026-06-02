@@ -22,7 +22,7 @@ from typing import Any
 import logging
 import os
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -1143,50 +1143,6 @@ def _watch_loop(
                 q.put({"_error": str(exc)})
                 stop_event.wait(5.0)
 
-
-@router.websocket("/trading/ws/change-stream")
-async def trading_change_stream_ws(ws: WebSocket):
-    """WebSocket: streams live trading events from MongoDB Change Stream."""
-    await ws.accept()
-
-    # Read optional filters from query params
-    stream_type = ws.query_params.get("stream_type")
-    event_type = ws.query_params.get("event_type")
-
-    match_filter: dict = {"operationType": "insert"}
-    if stream_type:
-        match_filter["fullDocument.streamType"] = stream_type
-    if event_type:
-        match_filter["fullDocument.eventType"] = event_type
-    pipeline = [{"$match": match_filter}]
-
-    q: queue.Queue[dict] = queue.Queue(maxsize=256)
-    stop_event = threading.Event()
-
-    # Start the Change Stream watcher thread
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _watch_loop, pipeline, q, stop_event)
-
-    try:
-        while True:
-            try:
-                doc = await asyncio.to_thread(q.get, True, 1.0)
-                if "_error" in doc:
-                    await ws.send_json({"type": "error", "message": doc["_error"]})
-                else:
-                    await ws.send_text(json.dumps(doc, default=str))
-            except queue.Empty:
-                # Send ping to keep connection alive
-                try:
-                    await ws.send_json({"type": "ping"})
-                except Exception:
-                    break
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        stop_event.set()
 
 
 @router.get("/trading/events/stream")

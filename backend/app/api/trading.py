@@ -839,10 +839,13 @@ async def trading_stream():
     """SSE: full state snapshots every 2 seconds. Always streams regardless of running state."""
 
     async def generate():
-        while True:
-            state = simulator.get_state()
-            yield f"data: {json.dumps(state, default=str)}\n\n"
-            await asyncio.sleep(1)
+        try:
+            while True:
+                state = simulator.get_state()
+                yield f"data: {json.dumps(state, default=str)}\n\n"
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass  # client disconnected — exit cleanly
 
     return StreamingResponse(
         generate(),

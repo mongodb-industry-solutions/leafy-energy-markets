@@ -231,6 +231,12 @@ export default function AuditPage() {
 
           <EventExplanationBubble scenarioId={selectedScenario.id} version={currentVersion} />
 
+          {/* Timeline + State */}
+          <div className={css`display: flex; gap: 24px; align-items: flex-start;`}>
+            <EventTimeline events={events} selectedVersion={currentVersion} onSelectVersion={setCurrentVersion} />
+            <AggregateStateView events={events} currentVersion={currentVersion} />
+          </div>
+
           {/* AI Analysis */}
           <div className={css`display: flex; flex-direction: column; gap: 16px;`}>
             <div className={css`display: flex; align-items: center; gap: 12px;`}>
@@ -284,7 +290,7 @@ export default function AuditPage() {
                     </button>
                     {stepsOpen && (
                       <div className={css`padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;`}>
-                        {analysisSteps.map((step, i) => (
+                        {analysisSteps.map((step) => (
                           <div key={step.id} className={css`display: flex; align-items: center; gap: 10px;`}>
                             <div className={css`
                               width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
@@ -377,12 +383,6 @@ export default function AuditPage() {
                 </div>
               </Card>
             )}
-          </div>
-
-          {/* Timeline + State */}
-          <div className={css`display: flex; gap: 24px; align-items: flex-start;`}>
-            <EventTimeline events={events} selectedVersion={currentVersion} onSelectVersion={setCurrentVersion} />
-            <AggregateStateView events={events} currentVersion={currentVersion} />
           </div>
         </>
       )}

@@ -231,6 +231,12 @@ export default function AuditPage() {
 
           <EventExplanationBubble scenarioId={selectedScenario.id} version={currentVersion} />
 
+          {/* Timeline + State */}
+          <div className={css`display: flex; gap: 24px; align-items: flex-start;`}>
+            <EventTimeline events={events} selectedVersion={currentVersion} onSelectVersion={setCurrentVersion} />
+            <AggregateStateView events={events} currentVersion={currentVersion} />
+          </div>
+
           {/* AI Analysis */}
           <div className={css`display: flex; flex-direction: column; gap: 16px;`}>
             <div className={css`display: flex; align-items: center; gap: 12px;`}>
@@ -377,12 +383,6 @@ export default function AuditPage() {
                 </div>
               </Card>
             )}
-          </div>
-
-          {/* Timeline + State */}
-          <div className={css`display: flex; gap: 24px; align-items: flex-start;`}>
-            <EventTimeline events={events} selectedVersion={currentVersion} onSelectVersion={setCurrentVersion} />
-            <AggregateStateView events={events} currentVersion={currentVersion} />
           </div>
         </>
       )}

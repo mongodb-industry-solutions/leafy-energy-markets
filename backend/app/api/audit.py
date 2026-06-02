@@ -161,22 +161,38 @@ def _build_audit_agent(coll, events: list[EventInput], regulation: str, mcp_tool
 You also have direct access to the MongoDB Atlas database via MCP (Model Context Protocol).
 Use MCP MongoDB tools to query the events collection or explore the database schema when needed for deeper analysis."""
 
-    system_prompt = f"""You are a compliance auditor AI specializing in European energy market regulation. You are analyzing a specific compliance scenario related to {regulation}.
+    system_prompt = f"""You are a senior compliance counsel AI specializing in European energy market regulation for Independent Power Producers (IPPs). You produce executive-level regulatory opinions for compliance officers and legal teams preparing for ACER or national regulator review.
 
-Your job is to:
-1. Examine the event stream using the reconstruct_state and get_event_timeline tools
-2. Search for relevant regulatory context using the search_policies tool
-3. Provide a detailed compliance analysis explaining:
-   - What happened in this scenario (based on the events)
-   - What the applicable regulation requires
-   - Whether the parties are compliant
-   - What the financial and regulatory implications are
-   - How the CQRS event sourcing architecture ensures audit integrity
+Your analysis must follow this exact structure — no deviations:
 
-Be specific about event versions, timestamps, and monetary amounts. Reference the regulation by name.
-Use the voyage-finance-2 embedding model results for regulatory document search.
-{mcp_section}
-Keep your analysis structured with clear headings."""
+## Executive Summary
+One concise paragraph: compliance verdict (compliant / non-compliant / requires remediation), the critical facts, and the headline regulatory exposure. Written for a C-suite reader.
+
+## Applicable Regulatory Framework
+The specific articles and provisions of {regulation} that govern this scenario. Include any directly relevant ACER guidelines, ENTSO-E network codes, or national transpositions. Cite by article number where possible.
+
+## Compliance Assessment
+For each material obligation under the regulation: state the requirement, whether the IPP met it, and the evidence from the event stream. Be direct — flag gaps without re-narrating every event.
+
+## Financial & Operational Exposure
+Quantify the risk: potential penalties, clawback amounts, imbalance charges, capacity derating, or access restrictions. Reference the penalty regime in the regulation where applicable.
+
+## Mandatory Regulatory Reporting
+What the IPP must file, to which authority (ACER, national NRA, TSO), and by when. Include REMIT transaction reporting obligations, settlement notifications, RRM submissions, or any other mandatory disclosures triggered by this scenario.
+
+## Required Actions & Remediation Timeline
+Concrete, numbered action items the IPP compliance team must take. Include responsible parties, deadlines, and any required regulator communication.
+
+## Audit Trail Integrity Assessment
+Whether the immutable event log (CQRS event sourcing, append-only store, versioned stream) provides sufficient evidence for regulatory defence. Note any gaps, missing events, or metadata issues that could weaken the audit position.
+
+Rules:
+- Do NOT reproduce a verbose event-by-event reconstruction. Use tools to gather facts, then synthesize.
+- Use get_event_timeline to understand the sequence of facts — do not repeat it verbatim in the output.
+- Use reconstruct_state only to verify specific numerical values or state at a critical moment.
+- Search for regulatory documents to ground your legal analysis.
+- Write for a compliance professional: precise, direct, actionable.
+{mcp_section}"""
 
     llm = _get_llm()
 
@@ -217,15 +233,18 @@ async def analyze_audit_scenario(req: AuditRequest, client=Depends(get_db)):
 
             from langchain_core.messages import HumanMessage
 
-            prompt = f"""Analyze this compliance scenario:
+            prompt = f"""Produce a compliance report for the following scenario:
 
 **Scenario:** {req.scenario_title}
 **Regulation:** {req.regulation}
 **Description:** {req.description}
+**Event stream:** {len(req.events)} events (current inspection point: version {req.current_version})
 
-The event stream has {len(req.events)} events. The user is currently viewing event version {req.current_version}.
-
-Please reconstruct the state at version {req.current_version}, review the full event timeline, and search for any relevant regulatory policies. Then provide a comprehensive compliance analysis."""
+Steps:
+1. Call get_event_timeline to understand the sequence of facts.
+2. Call search_policies to retrieve the applicable regulatory provisions.
+3. Call reconstruct_state only where a specific numerical or state value is needed to assess a compliance obligation.
+4. Produce the structured IPP compliance report per your instructions — executive summary first, then obligations, exposure, reporting, actions, and audit trail assessment."""
 
             config = {"configurable": {"thread_id": thread_id}}
             result = await agent.ainvoke({"messages": [HumanMessage(content=prompt)]}, config)
@@ -296,15 +315,18 @@ async def analyze_audit_stream(req: AuditRequest, client=Depends(get_db)):
 
             from langchain_core.messages import HumanMessage
 
-            prompt = f"""Analyze this compliance scenario:
+            prompt = f"""Produce a compliance report for the following scenario:
 
 **Scenario:** {req.scenario_title}
 **Regulation:** {req.regulation}
 **Description:** {req.description}
+**Event stream:** {len(req.events)} events (current inspection point: version {req.current_version})
 
-The event stream has {len(req.events)} events. The user is currently viewing event version {req.current_version}.
-
-Please reconstruct the state at version {req.current_version}, review the full event timeline, and search for any relevant regulatory policies. Then provide a comprehensive compliance analysis."""
+Steps:
+1. Call get_event_timeline to understand the sequence of facts.
+2. Call search_policies to retrieve the applicable regulatory provisions.
+3. Call reconstruct_state only where a specific numerical or state value is needed to assess a compliance obligation.
+4. Produce the structured IPP compliance report per your instructions — executive summary first, then obligations, exposure, reporting, actions, and audit trail assessment."""
 
             config = {"configurable": {"thread_id": thread_id}}
             tool_calls_used: list[str] = []

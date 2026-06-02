@@ -22,7 +22,7 @@ from typing import Any
 import logging
 import os
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -220,8 +220,8 @@ class TradingSimulator:
         while self._running:
             try:
                 await self._do_tick()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Simulator tick error (will retry in 5s): %s", exc, exc_info=True)
             await asyncio.sleep(5)
 
     async def _do_tick(self) -> None:
@@ -687,6 +687,7 @@ class TradingSimulator:
             "recentEvents": list(self._recent_events)[:20],
             "running": self._running,
             "persistence": "mongodb" if self._db is not None else "in-memory",
+            "persistenceErrors": self._persist_errors,
             "lastUpdated": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -838,10 +839,13 @@ async def trading_stream():
     """SSE: full state snapshots every 2 seconds. Always streams regardless of running state."""
 
     async def generate():
-        while True:
-            state = simulator.get_state()
-            yield f"data: {json.dumps(state, default=str)}\n\n"
-            await asyncio.sleep(1)
+        try:
+            while True:
+                state = simulator.get_state()
+                yield f"data: {json.dumps(state, default=str)}\n\n"
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass  # client disconnected — exit cleanly
 
     return StreamingResponse(
         generate(),
@@ -1144,50 +1148,6 @@ def _watch_loop(
                 stop_event.wait(5.0)
 
 
-@router.websocket("/trading/ws/change-stream")
-async def trading_change_stream_ws(ws: WebSocket):
-    """WebSocket: streams live trading events from MongoDB Change Stream."""
-    await ws.accept()
-
-    # Read optional filters from query params
-    stream_type = ws.query_params.get("stream_type")
-    event_type = ws.query_params.get("event_type")
-
-    match_filter: dict = {"operationType": "insert"}
-    if stream_type:
-        match_filter["fullDocument.streamType"] = stream_type
-    if event_type:
-        match_filter["fullDocument.eventType"] = event_type
-    pipeline = [{"$match": match_filter}]
-
-    q: queue.Queue[dict] = queue.Queue(maxsize=256)
-    stop_event = threading.Event()
-
-    # Start the Change Stream watcher thread
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _watch_loop, pipeline, q, stop_event)
-
-    try:
-        while True:
-            try:
-                doc = await asyncio.to_thread(q.get, True, 1.0)
-                if "_error" in doc:
-                    await ws.send_json({"type": "error", "message": doc["_error"]})
-                else:
-                    await ws.send_text(json.dumps(doc, default=str))
-            except queue.Empty:
-                # Send ping to keep connection alive
-                try:
-                    await ws.send_json({"type": "ping"})
-                except Exception:
-                    break
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        stop_event.set()
-
 
 @router.get("/trading/events/stream")
 async def trading_events_sse(
@@ -1200,6 +1160,15 @@ async def trading_events_sse(
     delivered as text/event-stream so it works through HTTP proxies and the
     Next.js Route Handler without requiring a WebSocket upgrade.
     """
+    # Lazy-start: ensure the simulator is running so the change stream has data to deliver
+    if not simulator._running:
+        from app.infrastructure.db import get_client, DB_NAME as _DB_NAME
+        try:
+            db = get_client()[_DB_NAME]
+            simulator.start(db=db)
+        except Exception as exc:
+            logger.warning("SSE lazy-start failed: %s", exc)
+
     match_filter: dict = {"operationType": "insert"}
     if stream_type:
         match_filter["fullDocument.streamType"] = stream_type

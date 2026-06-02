@@ -1,5 +1,3 @@
-import asyncio
-import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -20,34 +18,15 @@ for _var in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import commands, queries, telemetry, search, advisor, audit, trading
-from app.infrastructure.db import get_client, close_client, DB_NAME
-
-logger = logging.getLogger(__name__)
-
-
-async def _simulator_watchdog(db) -> None:
-    """Restart the trading simulator if its asyncio task dies unexpectedly."""
-    while True:
-        await asyncio.sleep(30)
-        sim = trading.simulator
-        if not sim._running:
-            continue
-        if sim._task is None or sim._task.done():
-            logger.warning("Trading simulator task died — restarting")
-            sim._running = False  # reset flag so start() doesn't early-return
-            sim.start(db=db)
+from app.infrastructure.db import get_client, close_client
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: warm DB pool, auto-start trading simulator, launch watchdog
-    client = get_client()
-    db = client[DB_NAME]
-    trading.simulator.start(db=db)
-    watchdog = asyncio.create_task(_simulator_watchdog(db))
+    # Startup: warm DB pool only — simulator starts/stops via the UI button
+    get_client()
     yield
-    # Shutdown: cancel watchdog, stop simulator, drain pool
-    watchdog.cancel()
+    # Shutdown: stop simulator if running, drain pool
     await trading.simulator.stop()
     close_client()
 

@@ -139,9 +139,11 @@ class TradingSimulator:
 
     async def stop(self) -> None:
         self._running = False
-        if self._task is not None:
-            self._task.cancel()
-            self._task = None  # don't await — returns immediately
+        for task in (self._task, self._persist_task):
+            if task is not None and not task.done():
+                task.cancel()
+        self._task = None
+        self._persist_task = None
 
     # ------------------------------------------------------------------
     # State initialisation
@@ -1156,19 +1158,10 @@ async def trading_events_sse(
 ):
     """SSE: streams live trading events from MongoDB Change Stream.
 
-    Drop-in replacement for the WebSocket endpoint — identical event payload,
-    delivered as text/event-stream so it works through HTTP proxies and the
-    Next.js Route Handler without requiring a WebSocket upgrade.
+    Delivers events only while the simulator is running (started via POST /trading/start).
+    Sends keepalive pings when idle so the connection stays open waiting for the user
+    to start the simulation.
     """
-    # Lazy-start: ensure the simulator is running so the change stream has data to deliver
-    if not simulator._running:
-        from app.infrastructure.db import get_client, DB_NAME as _DB_NAME
-        try:
-            db = get_client()[_DB_NAME]
-            simulator.start(db=db)
-        except Exception as exc:
-            logger.warning("SSE lazy-start failed: %s", exc)
-
     match_filter: dict = {"operationType": "insert"}
     if stream_type:
         match_filter["fullDocument.streamType"] = stream_type

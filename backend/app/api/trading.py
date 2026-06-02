@@ -1130,7 +1130,7 @@ def _watch_loop(
 
     while not stop_event.is_set():
         try:
-            with coll.watch(pipeline, full_document="updateLookup") as cursor:
+            with coll.watch(pipeline, full_document="updateLookup", max_await_time_ms=1000) as cursor:
                 for change in cursor:
                     if stop_event.is_set():
                         break

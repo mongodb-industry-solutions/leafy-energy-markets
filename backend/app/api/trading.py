@@ -1200,6 +1200,15 @@ async def trading_events_sse(
     delivered as text/event-stream so it works through HTTP proxies and the
     Next.js Route Handler without requiring a WebSocket upgrade.
     """
+    # Lazy-start: ensure the simulator is running so the change stream has data to deliver
+    if not simulator._running:
+        from app.infrastructure.db import get_client, DB_NAME as _DB_NAME
+        try:
+            db = get_client()[_DB_NAME]
+            simulator.start(db=db)
+        except Exception as exc:
+            logger.warning("SSE lazy-start failed: %s", exc)
+
     match_filter: dict = {"operationType": "insert"}
     if stream_type:
         match_filter["fullDocument.streamType"] = stream_type

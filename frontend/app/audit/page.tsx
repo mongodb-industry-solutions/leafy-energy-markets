@@ -290,7 +290,7 @@ export default function AuditPage() {
                     </button>
                     {stepsOpen && (
                       <div className={css`padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;`}>
-                        {analysisSteps.map((step, i) => (
+                        {analysisSteps.map((step) => (
                           <div key={step.id} className={css`display: flex; align-items: center; gap: 10px;`}>
                             <div className={css`
                               width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;

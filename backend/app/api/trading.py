@@ -220,8 +220,8 @@ class TradingSimulator:
         while self._running:
             try:
                 await self._do_tick()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Simulator tick error (will retry in 5s): %s", exc, exc_info=True)
             await asyncio.sleep(5)
 
     async def _do_tick(self) -> None:

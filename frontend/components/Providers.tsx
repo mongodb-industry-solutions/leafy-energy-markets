@@ -51,16 +51,34 @@ function TradingEventsProvider({ children }: { children: React.ReactNode }) {
   const abortRef = useRef<AbortController | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disposedRef = useRef(false);
+  // Resolved once on mount: the backend's external base URL (e.g.
+  // https://backend.prod.corp.mongodb.com) so the browser connects directly,
+  // bypassing the Istio/Envoy sidecar that buffers SSE responses.
+  // Empty string = local dev fallback (no Istio, proxy works fine).
+  const streamBaseRef = useRef<string | null>(null);
 
   useEffect(() => {
     disposedRef.current = false;
 
     const connect = async () => {
       if (disposedRef.current) return;
+
+      // Resolve external stream URL once, then cache it for reconnects.
+      if (streamBaseRef.current === null) {
+        try {
+          const cfg = await fetch('/api/stream-config');
+          const data = await cfg.json();
+          streamBaseRef.current = typeof data.streamUrl === 'string' ? data.streamUrl : '';
+        } catch {
+          streamBaseRef.current = '';
+        }
+      }
+
       abortRef.current = new AbortController();
 
       try {
-        const res = await fetch('/api/trading/events/stream', {
+        const url = `${streamBaseRef.current}/api/trading/events/stream`;
+        const res = await fetch(url, {
           signal: abortRef.current.signal,
         });
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);

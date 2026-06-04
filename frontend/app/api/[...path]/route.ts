@@ -17,14 +17,20 @@ async function proxy(req: NextRequest): Promise<Response> {
     }
   });
 
-  const body = req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined;
+  // Buffer the body into an ArrayBuffer before forwarding. Passing req.body
+  // (a ReadableStream) directly fails in production builds when the framework
+  // has already consumed the stream, and behaves differently across Node versions
+  // and through the Istio service mesh. An ArrayBuffer is always safe.
+  let body: BodyInit | null = null;
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const buf = await req.arrayBuffer();
+    body = buf.byteLength > 0 ? buf : null;
+  }
 
   const upstreamRes = await fetch(upstream, {
     method: req.method,
     headers,
-    body: body as BodyInit | null | undefined,
-    // @ts-expect-error — Node.js fetch supports duplex for streaming request bodies
-    duplex: 'half',
+    body,
     cache: 'no-store',
     signal: req.signal,
   });

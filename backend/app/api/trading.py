@@ -103,7 +103,11 @@ class TradingSimulator:
     @staticmethod
     def _ensure_timeseries_collection(db) -> None:
         """Create trading_events (time series) and trading_event_log (change stream projection)."""
-        existing = set(db.list_collection_names())
+        try:
+            existing = set(db.list_collection_names())
+        except Exception as e:
+            logger.warning("Could not list collections: %s — skipping collection setup", e)
+            return
 
         # ── Analytical layer ─────────────────────────────────────────────────
         if "trading_events" not in existing:
@@ -826,8 +830,13 @@ async def get_trading_state() -> dict:
 @router.post("/trading/start")
 async def start_trading(client=Depends(get_db)) -> dict:
     db = client[DB_NAME]
-    simulator.start(db=db)
-    return {"status": "started", "persistence": "mongodb" if db is not None else "in-memory"}
+    try:
+        simulator.start(db=db)
+    except Exception:
+        logger.exception("Failed to start trading simulator")
+        raise
+    logger.info("Trading simulator started (persistence=%s)", "mongodb" if simulator._db is not None else "in-memory")
+    return {"status": "started", "persistence": "mongodb" if simulator._db is not None else "in-memory"}
 
 
 @router.post("/trading/stop")

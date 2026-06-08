@@ -77,7 +77,7 @@ def _get_llm():
             api_key=azure_key,  # required by pydantic validation; not sent in requests
             base_url=base_url,
             temperature=0.3,
-            max_tokens=1024,
+            max_tokens=8192,
         )
         _common = dict(
             api_key=azure_key,
@@ -96,7 +96,7 @@ def _get_llm():
             model="claude-haiku-4-5",
             api_key=anthropic_key,
             temperature=0.3,
-            max_tokens=1024,
+            max_tokens=8192,
         )
 
     raise ValueError("No LLM configured. Set AZURE_FOUNDRY_API_KEY + AZURE_FOUNDRY_ENDPOINT in deploy/.env.")

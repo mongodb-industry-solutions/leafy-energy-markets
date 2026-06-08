@@ -252,6 +252,14 @@ export default function TelemetryPage() {
   const [filterEventType, setFilterEventType] = useState('');
   const [expandedEvent, setExpandedEvent] = useState<number | null>(null);
   const [simRunning, setSimRunning] = useState(false);
+  const [sessionId] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'default';
+    const stored = localStorage.getItem('leafy_session_id');
+    if (stored) return stored;
+    const id = `session-${Math.random().toString(36).slice(2, 11)}`;
+    localStorage.setItem('leafy_session_id', id);
+    return id;
+  });
   const recentTimestampsRef = useRef<Record<string, number[]>>({});
 
   // Apply filters client-side from the shared event stream
@@ -269,20 +277,20 @@ export default function TelemetryPage() {
   // Fetch schemas + poll running state every 3s
   useEffect(() => {
     fetch('/api/trading/event-schemas').then(r => r.ok ? r.json() : {}).then(setSchemas).catch(() => {});
-    const poll = () => fetch('/api/trading/state').then(r => r.ok ? r.json() : null).then(d => { if (d) setSimRunning(d.running); }).catch(() => {});
+    const poll = () => fetch(`/api/trading/state?session_id=${sessionId}`).then(r => r.ok ? r.json() : null).then(d => { if (d) setSimRunning(d.running); }).catch(() => {});
     poll();
     const id = setInterval(poll, 3000);
     return () => clearInterval(id);
-  }, []);
+  }, [sessionId]);
 
   const handleStartStop = useCallback(async () => {
-    const url = simRunning ? '/api/trading/stop' : '/api/trading/start';
+    const url = simRunning ? `/api/trading/stop?session_id=${sessionId}` : `/api/trading/start?session_id=${sessionId}`;
     try {
       await fetch(url, { method: 'POST' });
-      const res = await fetch('/api/trading/state');
+      const res = await fetch(`/api/trading/state?session_id=${sessionId}`);
       if (res.ok) { const d = await res.json(); setSimRunning(d.running); }
     } catch { /* ignore */ }
-  }, [simRunning]);
+  }, [simRunning, sessionId]);
 
   // Rebuild assetStats whenever the shared event stream updates
   useEffect(() => {

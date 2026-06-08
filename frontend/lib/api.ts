@@ -8,9 +8,27 @@ import {
 
 const BASE = '/api';
 
-// SSE streams go through the same catch-all Route Handler (/api/[...path]/route.ts)
-// which pipes upstreamRes.body directly — no buffering, real-time streaming works fine.
-const SSE_BASE = '/api';
+// In production/staging the backend's external HTTPS URL is resolved once from
+// /api/stream-config so SSE POST streams (advisor, audit) connect directly to the
+// backend, bypassing the Istio/Envoy sidecar that buffers streaming responses.
+// Locally stream-config returns '' so SSE falls back to the proxy as before.
+let _sseBase = '';
+let _sseBaseResolved = false;
+
+async function getSseBase(): Promise<string> {
+  if (_sseBaseResolved) return _sseBase;
+  try {
+    const res = await fetch('/api/stream-config');
+    const data = await res.json();
+    _sseBase = typeof data.streamUrl === 'string' && data.streamUrl.startsWith('http')
+      ? data.streamUrl
+      : '';
+  } catch {
+    _sseBase = '';
+  }
+  _sseBaseResolved = true;
+  return _sseBase;
+}
 
 export async function createTariffScenario(
   portfolioId: string,
@@ -104,7 +122,8 @@ export async function* streamAdvisor(
   const body: Record<string, unknown> = { message, portfolio, generators, history };
   if (sessionId) body.session_id = sessionId;
 
-  const res = await fetch(`${SSE_BASE}/advisor/stream`, {
+  const sseBase = await getSseBase();
+  const res = await fetch(`${sseBase}/api/advisor/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -201,7 +220,8 @@ export async function* streamAuditAnalysis(
   events: AuditEventInput[],
   currentVersion: number,
 ): AsyncGenerator<AdvisorStreamEvent> {
-  const res = await fetch(`${SSE_BASE}/audit/analyze/stream`, {
+  const sseBase = await getSseBase();
+  const res = await fetch(`${sseBase}/api/audit/analyze/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

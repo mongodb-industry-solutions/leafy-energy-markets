@@ -897,6 +897,14 @@ export default function DashboardPage() {
   const [alerts, setAlerts]   = useState<Alert[]>([]);
   const [toast, setToast]     = useState<string | null>(null);
   const [allocForm, setAllocForm] = useState<Record<string, AllocFormRow>>({});
+  const [sessionId] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'default';
+    const stored = localStorage.getItem('leafy_session_id');
+    if (stored) return stored;
+    const id = `session-${Math.random().toString(36).slice(2, 11)}`;
+    localStorage.setItem('leafy_session_id', id);
+    return id;
+  });
 
   const prevPricesRef = useRef<MarketPrices | null>(null);
 
@@ -915,7 +923,7 @@ export default function DashboardPage() {
     // 1. Fetch full state every 3s for prices and running status
     const fetchState = async () => {
       try {
-        const res = await fetch('/api/trading/state');
+        const res = await fetch(`/api/trading/state?session_id=${sessionId}`);
         if (res.ok) {
           const data: TradingState = await res.json();
           setState((prev) => {
@@ -934,7 +942,7 @@ export default function DashboardPage() {
       if (disposed) return;
       sseAbort = new AbortController();
       try {
-        const res = await fetch('/api/trading/events/stream', { signal: sseAbort.signal });
+        const res = await fetch(`/api/trading/events/stream?session_id=${sessionId}`, { signal: sseAbort.signal });
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
         const reader = res.body.getReader();
@@ -1064,8 +1072,8 @@ export default function DashboardPage() {
   // ── Dismiss alert ────────────────────────────
   const handleDismiss = useCallback(async (id: string) => {
     setAlerts((prev) => prev.filter((a) => a.id !== id));
-    try { await fetch(`/api/trading/alerts/${id}/dismiss`, { method: 'POST' }); } catch { /* ignore */ }
-  }, []);
+    try { await fetch(`/api/trading/alerts/${id}/dismiss?session_id=${sessionId}`, { method: 'POST' }); } catch { /* ignore */ }
+  }, [sessionId]);
 
   // ── Apply allocations (trade immediately) ────
   const handleApplyAllocations = useCallback(async () => {
@@ -1074,7 +1082,7 @@ export default function DashboardPage() {
     let lastState: TradingState | null = null;
     try {
       for (const [type, row] of entries) {
-        const res = await fetch('/api/trading/allocations', {
+        const res = await fetch(`/api/trading/allocations?session_id=${sessionId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1105,7 +1113,7 @@ export default function DashboardPage() {
     const tradeCount = entries.length;
     setToast(`${tradeCount} trade${tradeCount > 1 ? 's' : ''} executed ✓`);
     setTimeout(() => setToast(null), 3500);
-  }, [allocForm]);
+  }, [allocForm, sessionId]);
 
   // ── Price deltas ─────────────────────────────
   const priceDelta = (channel: keyof Pick<MarketPrices, 'dayAhead' | 'intraday' | 'flexibility'>): number | null => {

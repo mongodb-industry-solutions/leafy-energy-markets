@@ -22,7 +22,7 @@ from typing import Any
 import logging
 import os
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -69,7 +69,8 @@ class AllocationRequest(BaseModel):
 
 
 class TradingSimulator:
-    def __init__(self) -> None:
+    def __init__(self, session_id: str = "default") -> None:
+        self._session_id = session_id
         self._running = False
         self._task: asyncio.Task | None = None
         self._assets: dict[str, dict] = {}
@@ -201,6 +202,7 @@ class TradingSimulator:
                 "battery": {"targetMwh": 0.0, "marketChannel": "flexibility","priceFloorEur": 0.0},
                 "biomass": {"targetMwh": 0.0, "marketChannel": "day_ahead",  "priceFloorEur": 0.0},
             },
+            "executedCommittedMwh": 0.0,
             "committedMwh": 0.0,
             "forecastMwh": 0.0,
             "netGapMwh": 0.0,
@@ -329,7 +331,7 @@ class TradingSimulator:
                     "eventType": ev["eventType"],
                     "timestamp": datetime.fromisoformat(ev["timestamp"]) if isinstance(ev.get("timestamp"), str) else ev.get("timestamp", datetime.now(timezone.utc)),
                     "payload": ev.get("payload", {}),
-                    "metadata": {"source": "trading-simulator", "schemaVersion": 1},
+                    "metadata": {"source": "trading-simulator", "schemaVersion": 1, "sessionId": self._session_id},
                 }
                 for ev in events
             ]
@@ -354,10 +356,12 @@ class TradingSimulator:
         forecast_total = sum(
             a["forecastOutputMw"] for a in self._assets.values() if a["status"] == "online"
         )
-        committed_total = sum(
+        executed = self._portfolio.get("executedCommittedMwh", 0.0)
+        pending = sum(
             alloc["targetMwh"]
             for alloc in self._portfolio["allocationsByType"].values()
         )
+        committed_total = executed + pending
         gap = forecast_total - committed_total
         if gap > 10:
             gap_type = "surplus"
@@ -747,6 +751,9 @@ class TradingSimulator:
             self._portfolio["realisedPnlEur"] = round(
                 self._portfolio["realisedPnlEur"] + revenue, 2
             )
+            self._portfolio["executedCommittedMwh"] = round(
+                self._portfolio.get("executedCommittedMwh", 0.0) + req.targetMwh, 2
+            )
             trade_ev = {
                 "id": str(uuid.uuid4()),
                 "eventType": "TradeExecuted",
@@ -812,10 +819,16 @@ class TradingSimulator:
 
 
 # ---------------------------------------------------------------------------
-# Module-level singleton
+# Per-session simulator registry
 # ---------------------------------------------------------------------------
 
-simulator = TradingSimulator()
+_simulators: dict[str, TradingSimulator] = {}
+
+
+def _get_simulator(session_id: str) -> TradingSimulator:
+    if session_id not in _simulators:
+        _simulators[session_id] = TradingSimulator(session_id=session_id)
+    return _simulators[session_id]
 
 # ---------------------------------------------------------------------------
 # API Endpoints
@@ -823,36 +836,38 @@ simulator = TradingSimulator()
 
 
 @router.get("/trading/state")
-async def get_trading_state() -> dict:
-    return simulator.get_state()
+async def get_trading_state(session_id: str = Query(default="default")) -> dict:
+    return _get_simulator(session_id).get_state()
 
 
 @router.post("/trading/start")
-async def start_trading(client=Depends(get_db)) -> dict:
+async def start_trading(session_id: str = Query(default="default"), client=Depends(get_db)) -> dict:
     db = client[DB_NAME]
+    sim = _get_simulator(session_id)
     try:
-        simulator.start(db=db)
+        sim.start(db=db)
     except Exception:
         logger.exception("Failed to start trading simulator")
         raise
-    logger.info("Trading simulator started (persistence=%s)", "mongodb" if simulator._db is not None else "in-memory")
-    return {"status": "started", "persistence": "mongodb" if simulator._db is not None else "in-memory"}
+    logger.info("Trading simulator started (session=%s, persistence=%s)", session_id, "mongodb" if sim._db is not None else "in-memory")
+    return {"status": "started", "session_id": session_id, "persistence": "mongodb" if sim._db is not None else "in-memory"}
 
 
 @router.post("/trading/stop")
-async def stop_trading() -> dict:
-    await simulator.stop()
+async def stop_trading(session_id: str = Query(default="default")) -> dict:
+    await _get_simulator(session_id).stop()
     return {"status": "stopped"}
 
 
 @router.get("/trading/stream")
-async def trading_stream():
+async def trading_stream(session_id: str = Query(default="default")):
     """SSE: full state snapshots every 2 seconds. Always streams regardless of running state."""
+    sim = _get_simulator(session_id)
 
     async def generate():
         try:
             while True:
-                state = simulator.get_state()
+                state = sim.get_state()
                 yield f"data: {json.dumps(state, default=str)}\n\n"
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
@@ -869,27 +884,28 @@ async def trading_stream():
 
 
 @router.post("/trading/allocations")
-async def set_allocation(req: AllocationRequest) -> dict:
+async def set_allocation(req: AllocationRequest, session_id: str = Query(default="default")) -> dict:
     """Update allocation for an asset type and recompute portfolio gap."""
-    return simulator.apply_allocation(req)
+    return _get_simulator(session_id).apply_allocation(req)
 
 
 @router.post("/trading/alerts/{alert_id}/dismiss")
-async def dismiss_alert(alert_id: str) -> dict:
-    simulator._dismissed_alerts.add(alert_id)
+async def dismiss_alert(alert_id: str, session_id: str = Query(default="default")) -> dict:
+    _get_simulator(session_id)._dismissed_alerts.add(alert_id)
     return {"dismissed": alert_id}
 
 
 @router.post("/trading/weather-alert/iberian-storm")
-async def trigger_iberian_storm() -> dict:
+async def trigger_iberian_storm(session_id: str = Query(default="default")) -> dict:
     """Trigger a severe storm over southern Iberian peninsula — ES/PT solar drops to <20% capacity."""
+    sim = _get_simulator(session_id)
     now = datetime.now(timezone.utc)
 
     # Affect ES solar and PT solar assets
     affected_ids = ["ASSET-SOLAR-ES-001", "ASSET-SOLAR-PT-001"]
     affected_assets = []
     for aid in affected_ids:
-        asset = simulator._assets.get(aid)
+        asset = sim._assets.get(aid)
         if not asset:
             continue
         old_output = asset["currentOutputMw"]
@@ -922,7 +938,7 @@ async def trigger_iberian_storm() -> dict:
                 "source": "ECMWF-Storm",
             },
         }
-        simulator._recent_events.appendleft(forecast_ev)
+        sim._recent_events.appendleft(forecast_ev)
 
     # Emit WeatherAlertIssued for Iberian peninsula
     alert_ev = {
@@ -942,35 +958,36 @@ async def trigger_iberian_storm() -> dict:
             "stormRadiusKm": 400,
         },
     }
-    simulator._recent_events.appendleft(alert_ev)
-    simulator._alerts.append(alert_ev)
+    sim._recent_events.appendleft(alert_ev)
+    sim._alerts.append(alert_ev)
 
     # Recompute gap
-    gap_info = simulator._compute_gap()
-    simulator._portfolio["forecastMwh"] = round(gap_info["forecastMwh"], 2)
-    simulator._portfolio["committedMwh"] = round(gap_info["committedMwh"], 2)
-    simulator._portfolio["netGapMwh"] = round(gap_info["gapMwh"], 2)
-    simulator._portfolio["gapType"] = gap_info["gapType"]
+    gap_info = sim._compute_gap()
+    sim._portfolio["forecastMwh"] = round(gap_info["forecastMwh"], 2)
+    sim._portfolio["committedMwh"] = round(gap_info["committedMwh"], 2)
+    sim._portfolio["netGapMwh"] = round(gap_info["gapMwh"], 2)
+    sim._portfolio["gapType"] = gap_info["gapType"]
 
     return {
         "status": "storm_triggered",
         "affected": affected_ids,
         "message": "Iberian storm active — ES/PT solar output dropped to <20%",
-        "state": simulator.get_state(),
+        "state": sim.get_state(),
     }
 
 
 @router.get("/trading/alerts")
-async def get_alerts() -> list:
+async def get_alerts(session_id: str = Query(default="default")) -> list:
+    sim = _get_simulator(session_id)
     return [
-        a for a in simulator._alerts
-        if a.get("id") not in simulator._dismissed_alerts
+        a for a in sim._alerts
+        if a.get("id") not in sim._dismissed_alerts
     ]
 
 
 @router.get("/trading/events")
-async def get_events() -> list:
-    return list(simulator._recent_events)[:30]
+async def get_events(session_id: str = Query(default="default")) -> list:
+    return list(_get_simulator(session_id)._recent_events)[:30]
 
 
 # ---------------------------------------------------------------------------
@@ -1164,6 +1181,7 @@ def _watch_loop(
 async def trading_events_sse(
     stream_type: str | None = None,
     event_type: str | None = None,
+    session_id: str = Query(default="default"),
 ):
     """SSE: streams live trading events from MongoDB Change Stream.
 
@@ -1176,6 +1194,8 @@ async def trading_events_sse(
         match_filter["fullDocument.streamType"] = stream_type
     if event_type:
         match_filter["fullDocument.eventType"] = event_type
+    if session_id != "default":
+        match_filter["fullDocument.metadata.sessionId"] = session_id
     pipeline = [{"$match": match_filter}]
 
     q: queue.Queue[dict] = queue.Queue(maxsize=256)

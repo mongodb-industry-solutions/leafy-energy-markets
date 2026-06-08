@@ -342,11 +342,10 @@ class TradingSimulator:
             self._persist_errors = 0  # reset on success
         except Exception:
             self._persist_errors += 1
-            if self._persist_errors <= 3:
+            if self._persist_errors <= 3 or self._persist_errors % 20 == 0:
                 logger.warning("Failed to persist %d trading events (attempt %d)", len(events), self._persist_errors)
-            if self._persist_errors >= 10:
-                logger.warning("MongoDB persistence disabled after %d failures", self._persist_errors)
-                self._db = None
+            # Never permanently disable — keep retrying so the change stream feed
+            # recovers automatically after transient Atlas network blips.
 
     # ------------------------------------------------------------------
     # Gap computation
@@ -1160,19 +1159,33 @@ def _watch_loop(
         q.put({"_error": f"Cannot connect to MongoDB: {exc}"})
         return
 
+    resume_token = None
     while not stop_event.is_set():
         try:
-            with coll.watch(pipeline, full_document="updateLookup", max_await_time_ms=1000) as cursor:
+            watch_kwargs: dict = {
+                "full_document": "updateLookup",
+                "max_await_time_ms": 1000,
+            }
+            if resume_token is not None:
+                watch_kwargs["resume_after"] = resume_token
+            with coll.watch(pipeline, **watch_kwargs) as cursor:
                 for change in cursor:
                     if stop_event.is_set():
                         break
+                    resume_token = change.get("_id")
                     doc = change.get("fullDocument")
                     if doc:
                         doc.pop("_id", None)
-                        q.put(doc)
+                        try:
+                            q.put_nowait(doc)
+                        except queue.Full:
+                            pass  # drop oldest-unread event rather than blocking the cursor
         except Exception as exc:
             if not stop_event.is_set():
-                q.put({"_error": str(exc)})
+                try:
+                    q.put_nowait({"_error": str(exc)})
+                except queue.Full:
+                    pass
                 stop_event.wait(5.0)
 
 

@@ -56,9 +56,20 @@ function TradingEventsProvider({ children }: { children: React.ReactNode }) {
   // bypassing the Istio/Envoy sidecar that buffers SSE responses.
   // Empty string = local dev fallback (no Istio, proxy works fine).
   const streamBaseRef = useRef<string | null>(null);
+  // Per-browser session ID — populated from localStorage on first effect run.
+  const sessionIdRef = useRef<string>('default');
 
   useEffect(() => {
     disposedRef.current = false;
+    // Read (or create) the session ID from localStorage on client mount.
+    const stored = localStorage.getItem('leafy_session_id');
+    if (stored) {
+      sessionIdRef.current = stored;
+    } else {
+      const id = `session-${Math.random().toString(36).slice(2, 11)}`;
+      localStorage.setItem('leafy_session_id', id);
+      sessionIdRef.current = id;
+    }
 
     const connect = async () => {
       if (disposedRef.current) return;
@@ -77,7 +88,7 @@ function TradingEventsProvider({ children }: { children: React.ReactNode }) {
       abortRef.current = new AbortController();
 
       try {
-        const url = `${streamBaseRef.current}/api/trading/events/stream`;
+        const url = `${streamBaseRef.current}/api/trading/events/stream?session_id=${sessionIdRef.current}`;
         const res = await fetch(url, {
           signal: abortRef.current.signal,
         });

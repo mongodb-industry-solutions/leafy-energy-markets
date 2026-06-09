@@ -54,11 +54,6 @@ const COORD_MAP: Record<string, { lat: number; lng: number }> = Object.fromEntri
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-function markerRadius(asset: FleetAsset): number {
-  const util = asset.capacityMw > 0 ? asset.currentOutputMw / asset.capacityMw : 0;
-  return Math.round(util * 18 + 6);
-}
-
 function hasActiveAlert(asset: FleetAsset): boolean {
   return asset.recentEvents.some(
     (e) => e.eventType === 'WeatherAlertIssued' || e.eventType === 'PerformanceVarianceDetected',
@@ -113,6 +108,12 @@ export default function FleetAssetMap() {
   const assetsLayer    = useRef<L.LayerGroup | null>(null);
   const stormLayer     = useRef<L.LayerGroup | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const sessionIdRef   = useRef<string>('default');
+  const [mapReady, setMapReady] = useState(false);
+  useEffect(() => {
+    const stored = localStorage.getItem('leafy_session_id');
+    if (stored) sessionIdRef.current = stored;
+  }, []);
 
   // ── Initialize Leaflet map once ────────────────────────────
   useEffect(() => {
@@ -132,8 +133,18 @@ export default function FleetAssetMap() {
     assetsLayer.current = L.layerGroup().addTo(map);
     stormLayer.current  = L.layerGroup().addTo(map);
     mapRef.current      = map;
+    setMapReady(true);
+
+    // Inject blink keyframes for alert markers once
+    if (!document.getElementById('leaflet-emoji-styles')) {
+      const style = document.createElement('style');
+      style.id = 'leaflet-emoji-styles';
+      style.textContent = '@keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0.2} }';
+      document.head.appendChild(style);
+    }
 
     return () => {
+      setMapReady(false);
       map.remove();
       mapRef.current      = null;
       tileRef.current     = null;
@@ -151,7 +162,7 @@ export default function FleetAssetMap() {
   // ── Initial state fetch ────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/trading/state')
+    fetch(`/api/trading/state?session_id=${sessionIdRef.current}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!cancelled && data) {
@@ -165,7 +176,7 @@ export default function FleetAssetMap() {
 
   // ── SSE stream ─────────────────────────────────────────────
   useEffect(() => {
-    const es = new EventSource('/api/trading/stream');
+    const es = new EventSource(`/api/trading/stream?session_id=${sessionIdRef.current}`);
     eventSourceRef.current = es;
     es.onmessage = (e: MessageEvent) => {
       try {
@@ -203,25 +214,30 @@ export default function FleetAssetMap() {
 
   // ── Redraw asset markers ───────────────────────────────────
   useEffect(() => {
-    if (!assetsLayer.current) return;
+    if (!mapReady || !assetsLayer.current) return;
     assetsLayer.current.clearLayers();
 
     for (const asset of assets) {
-      const color  = TYPE_COLOR[asset.type] ?? '#aaaaaa';
-      const radius = markerRadius(asset);
       const alert  = hasActiveAlert(asset);
 
-      L.circleMarker([asset.lat, asset.lng], {
-        radius,
-        color:       alert ? palette.red.base : color,
-        fillColor:   color,
-        fillOpacity: asset.status === 'idle' ? 0.2 : 0.75,
-        weight:      alert ? 3 : 1.5,
+      const util = asset.capacityMw > 0 ? asset.currentOutputMw / asset.capacityMw : 0;
+      const fontSize = Math.round(18 + util * 12);
+      const icon = TYPE_ICON[asset.type] ?? '📌';
+      const alertStyle = alert ? 'animation:blink 0.6s step-start infinite;' : '';
+      const opacity = asset.status === 'idle' ? '0.45' : '1';
+
+      L.marker([asset.lat, asset.lng], {
+        icon: L.divIcon({
+          html: `<span style="font-size:${fontSize}px;line-height:1;display:block;text-align:center;opacity:${opacity};filter:drop-shadow(0 1px 4px rgba(0,0,0,0.7));${alertStyle}">${icon}</span>`,
+          className: '',
+          iconSize: [fontSize + 4, fontSize + 4],
+          iconAnchor: [(fontSize + 4) / 2, (fontSize + 4) / 2],
+        }),
       })
-        .bindTooltip(tooltipHtml(asset), { direction: 'top', offset: [0, -radius - 2] })
-        .addTo(assetsLayer.current);
+        .bindTooltip(tooltipHtml(asset), { direction: 'top', offset: [0, -(fontSize / 2) - 4] })
+        .addTo(assetsLayer.current!);
     }
-  }, [assets]);
+  }, [assets, mapReady]);
 
   // ── Redraw storm overlay ───────────────────────────────────
   useEffect(() => {
@@ -289,7 +305,7 @@ export default function FleetAssetMap() {
         <button
           onClick={async () => {
             try {
-              const res = await fetch('/api/trading/weather-alert/iberian-storm', { method: 'POST' });
+              const res = await fetch(`/api/trading/weather-alert/iberian-storm?session_id=${sessionIdRef.current}`, { method: 'POST' });
               if (res.ok) {
                 const data = await res.json();
                 setState(data.state);

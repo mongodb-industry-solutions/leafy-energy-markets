@@ -101,7 +101,16 @@ function LeafyContent() {
 
   // Initialise client-side only to avoid SSR/client hydration mismatch
   const [sessionId, setSessionId] = useState('');
-  useEffect(() => { setSessionId(crypto.randomUUID()); }, []);
+  useEffect(() => {
+    const stored = localStorage.getItem('leafy_session_id');
+    if (stored) {
+      setSessionId(stored);
+    } else {
+      const id = `session-${Math.random().toString(36).slice(2, 11)}`;
+      localStorage.setItem('leafy_session_id', id);
+      setSessionId(id);
+    }
+  }, []);
 
   const handleNewChat = useCallback(() => {
     clearChat();
@@ -124,7 +133,7 @@ function LeafyContent() {
     // Fetch live trading state to provide fleet + prices + weather context
     let tradingState: Record<string, unknown> | null = null;
     try {
-      const tsRes = await fetch('/api/trading/state');
+      const tsRes = await fetch(`/api/trading/state?session_id=${sessionId}`);
       if (tsRes.ok) tradingState = await tsRes.json();
     } catch { /* backend unavailable */ }
 

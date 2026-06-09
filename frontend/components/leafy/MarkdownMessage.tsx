@@ -16,6 +16,8 @@ function normalizeMarkdown(text: string): string {
   result = result.replace(/([^\n])\n?(#{1,6} )/g, '$1\n\n$2');
   // Collapse loose language labels before code fences
   result = result.replace(/\n(\w+)\n```\n/g, '\n```$1\n');
+  // Ensure blank line before table rows so the parser recognises them as tables
+  result = result.replace(/([^\n])\n(\|)/g, '$1\n\n$2');
   return result;
 }
 
@@ -42,6 +44,33 @@ export default function MarkdownMessage({ text, isAnimating }: MarkdownMessagePr
     }
     strong {
       color: ${darkMode ? palette.green.light1 : palette.green.dark1};
+    }
+    /* Tables */
+    table {
+      display: block;
+      overflow-x: auto;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 12px;
+      width: max-content;
+      max-width: 100%;
+    }
+    th, td {
+      padding: 6px 12px;
+      text-align: left;
+      border: 1px solid ${darkMode ? palette.gray.dark2 : palette.gray.light2};
+      white-space: nowrap;
+    }
+    th {
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      background: ${darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'};
+      color: ${darkMode ? palette.white : palette.black};
+    }
+    tr:nth-child(even) td {
+      background: ${darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'};
     }
     /* Remove any residual table toolbar icons */
     [data-streamdown-table-toolbar],

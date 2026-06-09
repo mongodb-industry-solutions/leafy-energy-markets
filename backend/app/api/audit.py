@@ -1,5 +1,6 @@
 """LLM-powered compliance audit analysis using LangChain ReAct agent + MCP."""
 
+import asyncio
 import os
 import json
 import logging
@@ -303,6 +304,9 @@ async def analyze_audit_stream(req: AuditRequest, client=Depends(get_db)):
     coll = db[COLLECTION]
     thread_id = f"audit-{req.scenario_id}-v{req.current_version}"
 
+    PING_INTERVAL = 5.0
+    HARD_TIMEOUT  = 300.0
+
     async def generate():
         async with AsyncExitStack() as stack:
             try:
@@ -310,7 +314,11 @@ async def analyze_audit_stream(req: AuditRequest, client=Depends(get_db)):
             except Exception:
                 checkpointer = None
 
-            mcp_tools = await _enter_mcp_client(stack)
+            try:
+                mcp_tools = await _enter_mcp_client(stack)
+            except Exception:
+                mcp_tools = []
+
             agent, _ = _build_audit_agent(coll, req.events, req.regulation, mcp_tools, checkpointer=checkpointer)
 
             from langchain_core.messages import HumanMessage
@@ -332,9 +340,28 @@ Steps:
             tool_calls_used: list[str] = []
 
             try:
-                async for event in agent.astream_events(
+                agent_iter = agent.astream_events(
                     {"messages": [HumanMessage(content=prompt)]}, config, version="v2"
-                ):
+                )
+                deadline = asyncio.get_event_loop().time() + HARD_TIMEOUT
+
+                while True:
+                    if asyncio.get_event_loop().time() > deadline:
+                        logger.warning("Audit agent exceeded %ss hard timeout", HARD_TIMEOUT)
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'Analysis timed out.'})}\n\n"
+                        break
+
+                    try:
+                        event = await asyncio.wait_for(
+                            agent_iter.__anext__(),
+                            timeout=PING_INTERVAL,
+                        )
+                    except asyncio.TimeoutError:
+                        yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+                        continue
+                    except StopAsyncIteration:
+                        break
+
                     etype = event["event"]
 
                     if etype == "on_tool_start":

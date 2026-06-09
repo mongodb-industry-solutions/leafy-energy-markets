@@ -16,7 +16,11 @@ function normalizeMarkdown(text: string): string {
   result = result.replace(/([^\n])\n?(#{1,6} )/g, '$1\n\n$2');
   // Collapse loose language labels before code fences
   result = result.replace(/\n(\w+)\n```\n/g, '\n```$1\n');
-  // Ensure blank line before table rows so the parser recognises them as tables
+  // Remove blank lines between table rows (LLM often inserts them, breaking GFM parsing)
+  result = result.replace(/(\|[^\n]*)\n\n(\|)/g, '$1\n$2');
+  // Run twice to catch consecutive blank-line-separated rows
+  result = result.replace(/(\|[^\n]*)\n\n(\|)/g, '$1\n$2');
+  // Ensure blank line before the first table row so the parser recognises the block
   result = result.replace(/([^\n])\n(\|)/g, '$1\n\n$2');
   return result;
 }

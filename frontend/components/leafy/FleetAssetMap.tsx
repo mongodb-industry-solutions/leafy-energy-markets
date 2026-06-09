@@ -109,6 +109,7 @@ export default function FleetAssetMap() {
   const stormLayer     = useRef<L.LayerGroup | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef   = useRef<string>('default');
+  const [mapReady, setMapReady] = useState(false);
   useEffect(() => {
     const stored = localStorage.getItem('leafy_session_id');
     if (stored) sessionIdRef.current = stored;
@@ -132,6 +133,7 @@ export default function FleetAssetMap() {
     assetsLayer.current = L.layerGroup().addTo(map);
     stormLayer.current  = L.layerGroup().addTo(map);
     mapRef.current      = map;
+    setMapReady(true);
 
     // Inject blink keyframes for alert markers once
     if (!document.getElementById('leaflet-emoji-styles')) {
@@ -142,6 +144,7 @@ export default function FleetAssetMap() {
     }
 
     return () => {
+      setMapReady(false);
       map.remove();
       mapRef.current      = null;
       tileRef.current     = null;
@@ -211,7 +214,7 @@ export default function FleetAssetMap() {
 
   // ── Redraw asset markers ───────────────────────────────────
   useEffect(() => {
-    if (!assetsLayer.current) return;
+    if (!mapReady || !assetsLayer.current) return;
     assetsLayer.current.clearLayers();
 
     for (const asset of assets) {
@@ -234,7 +237,7 @@ export default function FleetAssetMap() {
         .bindTooltip(tooltipHtml(asset), { direction: 'top', offset: [0, -(fontSize / 2) - 4] })
         .addTo(assetsLayer.current!);
     }
-  }, [assets]);
+  }, [assets, mapReady]);
 
   // ── Redraw storm overlay ───────────────────────────────────
   useEffect(() => {

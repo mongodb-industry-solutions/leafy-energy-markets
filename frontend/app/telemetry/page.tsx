@@ -70,6 +70,17 @@ const pulse = keyframes`
   50%      { box-shadow: 0 0 0 4px rgba(0, 237, 100, 0.1); }
 `;
 
+const guidedRing = keyframes`
+  0%   { box-shadow: 0 0 0 0 rgba(0, 237, 100, 0.7), 0 0 0 0 rgba(0, 237, 100, 0.4); }
+  70%  { box-shadow: 0 0 0 10px rgba(0, 237, 100, 0.0), 0 0 0 20px rgba(0, 237, 100, 0.0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 237, 100, 0.0), 0 0 0 0 rgba(0, 237, 100, 0.0); }
+`;
+
+const tooltipFade = keyframes`
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
 // ─── Helpers ──────────────────────────────────
 
 function relativeTime(iso: string): string {
@@ -252,6 +263,8 @@ export default function TelemetryPage() {
   const [filterEventType, setFilterEventType] = useState('');
   const [expandedEvent, setExpandedEvent] = useState<number | null>(null);
   const [simRunning, setSimRunning] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const startBtnRef = useRef<HTMLDivElement>(null);
   const [sessionId] = useState<string>(() => {
     if (typeof window === 'undefined') return 'default';
     const stored = localStorage.getItem('leafy_session_id');
@@ -282,6 +295,22 @@ export default function TelemetryPage() {
     const id = setInterval(poll, 3000);
     return () => clearInterval(id);
   }, [sessionId]);
+
+  // Activate onboarding spotlight when arriving via "Start Demo" (?guided=1)
+  useEffect(() => {
+    const isGuided = typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('guided') === '1';
+    if (isGuided && !simRunning) {
+      const t = setTimeout(() => setShowGuide(true), 600);
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Dismiss guide when simulation starts
+  useEffect(() => {
+    if (simRunning) setShowGuide(false);
+  }, [simRunning]);
 
   const handleStartStop = useCallback(async () => {
     const url = simRunning ? `/api/trading/stop?session_id=${sessionId}` : `/api/trading/start?session_id=${sessionId}`;
@@ -327,9 +356,65 @@ export default function TelemetryPage() {
                 Live
               </span>
             )}
-            <Button variant={simRunning ? 'danger' : 'primary'} size="small" darkMode={darkMode} onClick={handleStartStop}>
-              {simRunning ? '■ Stop Simulation' : '▶ Start Simulation'}
-            </Button>
+            {/* Spotlight wrapper — highlighted when arriving from Start Demo */}
+            <div ref={startBtnRef} className={css`position: relative;`}>
+              <div className={css`
+                border-radius: 8px;
+                transition: box-shadow 0.3s ease;
+                ${showGuide ? `animation: ${guidedRing} 1.4s ease-out infinite;` : ''}
+              `}>
+                <Button variant={simRunning ? 'danger' : 'primary'} size="small" darkMode={darkMode} onClick={handleStartStop}>
+                  {simRunning ? '■ Stop Simulation' : '▶ Start Simulation'}
+                </Button>
+              </div>
+              {showGuide && (
+                <div className={css`
+                  position: absolute;
+                  top: calc(100% + 12px);
+                  right: 0;
+                  width: 220px;
+                  background: #00ED64;
+                  color: #000;
+                  border-radius: 10px;
+                  padding: 10px 14px;
+                  font-size: 12px;
+                  font-weight: 700;
+                  line-height: 1.5;
+                  box-shadow: 0 8px 32px rgba(0, 237, 100, 0.35);
+                  animation: ${tooltipFade} 0.3s ease;
+                  z-index: 100;
+                  cursor: default;
+                  &::before {
+                    content: '';
+                    position: absolute;
+                    bottom: 100%;
+                    right: 18px;
+                    border: 7px solid transparent;
+                    border-bottom-color: #00ED64;
+                  }
+                `}>
+                  👆 Click here to start the live simulation
+                  <button
+                    onClick={() => setShowGuide(false)}
+                    className={css`
+                      display: block;
+                      margin-top: 6px;
+                      font-size: 10px;
+                      font-weight: 600;
+                      color: rgba(0,0,0,0.5);
+                      background: none;
+                      border: none;
+                      cursor: pointer;
+                      padding: 0;
+                      font-family: inherit;
+                      &:hover { color: rgba(0,0,0,0.8); }
+                    `}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         }
       />

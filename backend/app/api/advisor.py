@@ -116,6 +116,16 @@ router = APIRouter()
 from app.infrastructure.db import DB_NAME
 COLLECTION = "documents"
 
+# ── LLM singleton ─────────────────────────────────────────
+# Build once on first use; avoids per-request pydantic init + SDK setup cost.
+_llm_instance = None
+
+def _get_llm_cached():
+    global _llm_instance
+    if _llm_instance is None:
+        _llm_instance = _get_llm()
+    return _llm_instance
+
 
 # ── Conversation Memory (MongoDB-backed) ─────────────────
 
@@ -466,12 +476,83 @@ Use the specialized search tools (search_policies, search_market_intel) for sema
 Use MCP MongoDB tools (find, aggregate) when you need to run custom queries, explore data schema, or access collections beyond the document store.
 Key collections: documents (market intel + IEA policies), telemetry_events (generator time-series metrics), events (CQRS event store)."""
 
-    system_prompt = f"""You are EnerLeafy, an AI energy market advisor at a European renewable energy IPP. You have access to live fleet data (8 EU assets: wind, solar, hydro, gas, battery, biomass), real-time market prices (Day-Ahead, Intraday, Flexibility), portfolio position (committed vs forecast MWh, P&L), weather events, EU/IEA policy documents, and web search.
+    # Pre-compute portfolio analysis and embed it directly in the system prompt.
+    # This eliminates the mandatory analyze_portfolio tool call (saves one full LLM round-trip).
+    portfolio_context = ""
+    if portfolio or generators:
+        try:
+            # Reuse the same logic as the analyze_portfolio tool
+            lines = []
+            if portfolio:
+                total_output = sum(a.get("currentOutputMw", 0) for a in portfolio)
+                total_forecast = sum(a.get("forecastOutputMw", 0) for a in portfolio)
+                total_capacity = sum(a.get("capacityMw", 0) for a in portfolio)
+                by_type: dict[str, dict] = {}
+                for a in portfolio:
+                    t = a.get("type", "unknown")
+                    if t not in by_type:
+                        by_type[t] = {"count": 0, "outputMw": 0.0, "forecastMw": 0.0, "capacityMw": 0.0}
+                    by_type[t]["count"] += 1
+                    by_type[t]["outputMw"] += a.get("currentOutputMw", 0)
+                    by_type[t]["forecastMw"] += a.get("forecastOutputMw", 0)
+                    by_type[t]["capacityMw"] += a.get("capacityMw", 0)
+                lines.append("## Live Fleet Status")
+                lines.append(f"Total assets: {len(portfolio)} | Output: {total_output:,.0f} MW (forecast: {total_forecast:,.0f} MW) | Capacity: {total_capacity:,.0f} MW ({total_output / total_capacity * 100:.0f}% util)" if total_capacity else "")
+                lines.append("")
+                for t, data in sorted(by_type.items(), key=lambda x: -x[1]["outputMw"]):
+                    variance = data["outputMw"] - data["forecastMw"]
+                    lines.append(f"  {t}: {data['outputMw']:.0f} MW output (forecast {data['forecastMw']:.0f} MW, variance {variance:+.0f} MW, capacity {data['capacityMw']:.0f} MW)")
+            for ctx in generators:
+                ctx_type = ctx.get("context", "")
+                if ctx_type == "live_market_prices":
+                    lines.append("")
+                    lines.append("## Live Market Prices")
+                    for key in ("dayAhead", "intraday", "flexibility"):
+                        val = ctx.get(key)
+                        if val is not None:
+                            lines.append(f"  {key}: EUR {val:.2f}/MWh")
+                    best = ctx.get("bestChannel", "")
+                    if best:
+                        lines.append(f"  Best channel: {best}")
+                elif ctx_type == "portfolio_state":
+                    lines.append("")
+                    lines.append("## Portfolio Position")
+                    committed = ctx.get("committedMwh", 0)
+                    forecast = ctx.get("forecastMwh", 0)
+                    gap = ctx.get("netGapMwh", 0)
+                    gap_type = ctx.get("gapType", "balanced")
+                    realised = ctx.get("realisedPnlEur", 0)
+                    target = ctx.get("dailyTargetEur", 0)
+                    lines.append(f"  Committed: {committed:,.0f} MWh | Forecast: {forecast:,.0f} MWh | Gap: {gap:+,.0f} MWh ({gap_type})")
+                    lines.append(f"  Realised P&L: EUR {realised:,.0f} / target EUR {target:,.0f} ({realised / target * 100:.0f}%)" if target else f"  Realised P&L: EUR {realised:,.0f}")
+                elif ctx_type == "weather_and_performance_events":
+                    events = ctx.get("events", [])
+                    if events:
+                        lines.append("")
+                        lines.append("## Recent Weather & Performance Events")
+                        for ev in events[:6]:
+                            etype = ev.get("eventType", "")
+                            payload = ev.get("payload", {})
+                            if etype == "WeatherAlertIssued":
+                                lines.append(f"  ALERT: {payload.get('region', '?')} — {payload.get('severity', '?')} ({payload.get('description', '')})")
+                            elif etype == "WindForecastUpdated":
+                                lines.append(f"  Wind: {payload.get('region', '?')} forecast {payload.get('forecastDeltaPct', 0):+.1f}%")
+                            elif etype == "SolarIrradianceForecastUpdated":
+                                lines.append(f"  Solar: {payload.get('region', '?')} forecast {payload.get('forecastDeltaPct', 0):+.1f}% ({payload.get('irradianceWm2', 0)} W/m²)")
+                            elif etype == "PerformanceVarianceDetected":
+                                lines.append(f"  Variance: {payload.get('assetName', '?')} {payload.get('variancePct', 0):+.1f}%")
+            portfolio_context = "\n".join(lines)
+        except Exception:
+            portfolio_context = ""
+
+    portfolio_section = f"\n\n## CURRENT PORTFOLIO SNAPSHOT (pre-loaded — do NOT call analyze_portfolio)\n{portfolio_context}" if portfolio_context else ""
+
+    system_prompt = f"""You are EnerLeafy, an AI energy market advisor at a European renewable energy IPP. You have access to live fleet data (8 EU assets: wind, solar, hydro, gas, battery, biomass), real-time market prices (Day-Ahead, Intraday, Flexibility), portfolio position (committed vs forecast MWh, P&L), weather events, EU/IEA policy documents, and web search.{portfolio_section}
 
 ## TOOL USAGE
-Call ALL needed tools SIMULTANEOUSLY in your first action. Never repeat a tool call.
-- ALWAYS call: `analyze_portfolio` (live fleet, prices, position)
-- ONLY if asked: `search_policies`, `get_energy_news`, `web_search`, `get_generator_status`, `search_market_intel`
+The portfolio snapshot above is already current — skip `analyze_portfolio` unless the user asks to refresh it.
+ONLY call tools when specifically needed: `search_policies` for EU regulations, `get_energy_news`/`web_search` for breaking news, `get_generator_status` for per-asset detail, `search_market_intel` for research documents.
+When you do need multiple tools, call them ALL simultaneously.
 
 ## RESPONSE FORMAT
 Use clean markdown only — no JSON markers, no embedded code blocks.
@@ -480,7 +561,7 @@ Use clean markdown only — no JSON markers, no embedded code blocks.
 2-3 sentences. State key prices (EUR/MWh) and market direction inline.
 
 ### Portfolio Impact
-Key metrics as a short table or bullet list: output, committed, gap, P&L vs target.
+Key metrics as a compact markdown table: output, committed, gap, P&L vs target.
 
 ### Recommended Actions
 2-4 numbered actions. For each: **Action** — rationale — risk — priority.
@@ -490,7 +571,7 @@ Key metrics as a short table or bullet list: output, committed, gap, P&L vs targ
 
 Be direct. Quantify everything (EUR, %, MW). Reference EU regulations by name/article. No filler text.{mcp_section}"""
 
-    llm = _get_llm()
+    llm = _get_llm_cached()
 
     from langgraph.prebuilt import create_react_agent
 
@@ -524,15 +605,14 @@ async def advisor_chat(req: AdvisorRequest, client=Depends(get_db)):
 
     try:
         async with AsyncExitStack() as stack:
-            # MongoDB conversation checkpointer (optional — skip if DB is slow)
+            # Run MCP init and checkpointer init concurrently
+            mcp_task = asyncio.create_task(_enter_mcp_client(stack))
             try:
                 checkpointer = _get_checkpointer(client)
             except Exception as e:
                 logger.warning("Checkpointer unavailable: %s — running without memory", e)
                 checkpointer = None
-
-            # Try to connect MongoDB MCP Server for direct DB access
-            mcp_tools = await _enter_mcp_client(stack)
+            mcp_tools = await mcp_task
 
             agent, tools = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
 
@@ -595,13 +675,15 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
         yield f"data: {json.dumps({'type': 'thinking'})}\n\n"
 
         async with AsyncExitStack() as stack:
+            # Run MCP init and checkpointer init concurrently to cut setup latency
+            mcp_task = asyncio.create_task(_enter_mcp_client(stack))
             try:
                 checkpointer = _get_checkpointer(client)
             except Exception as e:
                 logger.warning("Checkpointer unavailable: %s", e)
                 checkpointer = None
+            mcp_tools = await mcp_task
 
-            mcp_tools = await _enter_mcp_client(stack)
             try:
                 agent, _ = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
             except Exception as build_exc:

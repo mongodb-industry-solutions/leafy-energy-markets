@@ -3,8 +3,8 @@
 import { useMemo } from 'react';
 import { css } from '@emotion/css';
 import { palette } from '@leafygreen-ui/palette';
-import { Streamdown } from 'streamdown';
-import 'streamdown/styles.css';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useDarkMode } from '@/components/Providers';
 
 // Strip all @element_name{...} inline markers — no chips, plain text only
@@ -16,11 +16,10 @@ function normalizeMarkdown(text: string): string {
   result = result.replace(/([^\n])\n?(#{1,6} )/g, '$1\n\n$2');
   // Collapse loose language labels before code fences
   result = result.replace(/\n(\w+)\n```\n/g, '\n```$1\n');
-  // Remove blank lines between table rows (LLM often inserts them, breaking GFM parsing)
+  // Remove blank lines between table rows (LLM often inserts them, breaking GFM)
   result = result.replace(/(\|[^\n]*)\n\n(\|)/g, '$1\n$2');
-  // Run twice to catch consecutive blank-line-separated rows
   result = result.replace(/(\|[^\n]*)\n\n(\|)/g, '$1\n$2');
-  // Ensure blank line before the first table row so the parser recognises the block
+  // Ensure a blank line before the first table row so the block is recognised
   result = result.replace(/([^\n])\n(\|)/g, '$1\n\n$2');
   return result;
 }
@@ -49,6 +48,33 @@ export default function MarkdownMessage({ text, isAnimating }: MarkdownMessagePr
     strong {
       color: ${darkMode ? palette.green.light1 : palette.green.dark1};
     }
+    p {
+      margin: 6px 0;
+      line-height: 1.6;
+    }
+    ul {
+      padding-left: 20px;
+    }
+    li {
+      margin-bottom: 4px;
+    }
+    code {
+      background: ${darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'};
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    pre {
+      background: ${darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'};
+      padding: 10px 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+    }
     /* Tables */
     table {
       display: block;
@@ -76,23 +102,31 @@ export default function MarkdownMessage({ text, isAnimating }: MarkdownMessagePr
     tr:nth-child(even) td {
       background: ${darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'};
     }
-    /* Remove any residual table toolbar icons */
-    [data-streamdown-table-toolbar],
-    [data-streamdown-code-toolbar] {
-      display: none !important;
-    }
+    /* Typing cursor during streaming */
+    ${isAnimating ? `
+      &::after {
+        content: '▋';
+        display: inline-block;
+        opacity: 1;
+        animation: blink-cursor 0.7s step-start infinite;
+        color: ${palette.green.base};
+        font-size: 13px;
+        margin-left: 2px;
+      }
+      @keyframes blink-cursor {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+      }
+    ` : ''}
   `;
 
   const normalized = useMemo(() => normalizeMarkdown(text), [text]);
 
   return (
     <div className={wrapperClass}>
-      <Streamdown
-        isAnimating={isAnimating}
-        controls={false}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
         {normalized}
-      </Streamdown>
+      </ReactMarkdown>
     </div>
   );
 }

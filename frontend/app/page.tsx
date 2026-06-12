@@ -292,7 +292,7 @@ export default function Home() {
 
           {/* CTAs */}
           <div className={css`display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;`}>
-            <Link href="/dashboard" className={css`text-decoration: none;`}>
+            <Link href="/telemetry?guided=1" className={css`text-decoration: none;`}>
               <div
                 className={css`
                   display: inline-flex;
@@ -313,12 +313,12 @@ export default function Home() {
                   }
                 `}
               >
-                Open Dashboard
+                ▶ Start Demo
                 <span className={css`font-size: 16px;`}>→</span>
               </div>
             </Link>
 
-            <Link href="/leafy" className={css`text-decoration: none;`}>
+            <Link href="/dashboard" className={css`text-decoration: none;`}>
               <div
                 className={css`
                   display: inline-flex;
@@ -341,7 +341,7 @@ export default function Home() {
                   }
                 `}
               >
-                Talk to AI Advisor
+                Open Dashboard
               </div>
             </Link>
           </div>

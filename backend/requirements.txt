@@ -2,7 +2,7 @@
 #    uv pip compile backend/pyproject.toml -o backend/requirements.txt
 aiohappyeyeballs==2.6.2
     # via aiohttp
-aiohttp==3.13.5
+aiohttp==3.14.3
     # via
     #   fsspec
     #   instructor

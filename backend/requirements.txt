@@ -251,7 +251,7 @@ packaging==26.2
     #   pytest
 pandas==3.0.3
     # via datasets
-pillow==12.2.0
+pillow==12.3.0
     # via ragas
 pluggy==1.6.0
     # via pytest

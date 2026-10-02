@@ -46,7 +46,7 @@ click==8.4.1
     # via
     #   ddgs
     #   uvicorn
-cryptography==48.0.0
+cryptography==50.0.0
     # via pyjwt
 dataclasses-json==0.6.7
     # via langchain-community

@@ -3,12 +3,6 @@ env:
   APP_ENV: staging
   AWS_REGION: us-east-1
 
-# Tell Istio to use HTTP/1.1 for the backend service — required for SSE streaming.
-# Envoy's default HTTP/2 auto-detection buffers SSE responses, breaking Change Stream
-# event delivery and advisor token streaming.
-service:
-  appProtocol: http
-
 envSecrets:
   MONGO_URI: leafy-energy-markets-secrets
   AZURE_FOUNDRY_API_KEY: leafy-energy-markets-secrets

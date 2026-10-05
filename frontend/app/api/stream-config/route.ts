@@ -5,22 +5,15 @@ export const dynamic = 'force-dynamic';
 /**
  * Returns the backend URL the browser should use for SSE connections.
  *
- * In production/staging, NEXT_PUBLIC_API_URL is injected at runtime by Helm
- * (e.g. https://leafy-energy-markets-backend.industrysolutions.prod.corp.mongodb.com).
- * Server-side code reads the actual process env, not the build-time '/api' replacement.
+ * Always returns '' so SSE streams go through the Next.js server's beforeFiles
+ * rewrites (configured in next.config.js). These rewrites proxy to the internal
+ * backend service (INTERNAL_API_URL) at the HTTP server level — no Route Handler
+ * fetch() involved — which avoids ERR_HTTP2_PROTOCOL_ERROR from Envoy/Istio
+ * buffering SSE responses over HTTP/2.
  *
- * Returning this to the browser lets TradingEventsProvider connect directly to
- * the backend's external ingress, bypassing the internal Istio/Envoy mesh that
- * buffers SSE responses (Envoy waits for a never-ending response to "complete").
- *
- * Locally NEXT_PUBLIC_API_URL is not set (build arg is '/api' but that's baked
- * into client bundles, not process.env), so streamUrl returns '' and the browser
- * falls back to '/api/trading/events/stream' through the proxy — which works
- * fine without an Istio mesh.
+ * Previously this returned NEXT_PUBLIC_API_URL (backend external ingress) so the
+ * browser connected directly, but that path also goes through Envoy HTTP/2.
  */
 export async function GET() {
-  const streamUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-  // Don't return a relative path — that would produce double '/api/api/...'
-  const safeUrl = streamUrl.startsWith('http') ? streamUrl : '';
-  return NextResponse.json({ streamUrl: safeUrl });
+  return NextResponse.json({ streamUrl: '' });
 }

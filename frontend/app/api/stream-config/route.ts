@@ -5,15 +5,16 @@ export const dynamic = 'force-dynamic';
 /**
  * Returns the backend URL the browser should use for SSE connections.
  *
- * Always returns '' so SSE streams go through the Next.js server's beforeFiles
- * rewrites (configured in next.config.js). These rewrites proxy to the internal
- * backend service (INTERNAL_API_URL) at the HTTP server level — no Route Handler
- * fetch() involved — which avoids ERR_HTTP2_PROTOCOL_ERROR from Envoy/Istio
- * buffering SSE responses over HTTP/2.
+ * In production/staging, NEXT_PUBLIC_API_URL is injected at runtime by Helm
+ * (e.g. https://leafy-energy-markets-backend.industrysolutions.staging.corp.mongodb.com).
+ * The browser connects directly to the backend for SSE, bypassing the Next.js
+ * proxy which can buffer or break long-lived streaming responses.
  *
- * Previously this returned NEXT_PUBLIC_API_URL (backend external ingress) so the
- * browser connected directly, but that path also goes through Envoy HTTP/2.
+ * Locally NEXT_PUBLIC_API_URL is not set, so streamUrl returns '' and the browser
+ * falls back to '/api/...' through the Route Handler proxy.
  */
 export async function GET() {
-  return NextResponse.json({ streamUrl: '' });
+  const streamUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+  const safeUrl = streamUrl.startsWith('http') ? streamUrl : '';
+  return NextResponse.json({ streamUrl: safeUrl });
 }

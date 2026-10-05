@@ -61,7 +61,7 @@ steps:
         - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend"
         - "ingress.enabled=true"
         - "ingress.hosts[0]=leafy-energy-markets-backend.industrysolutions.staging.corp.mongodb.com"
-        - "mesh.enabled=true"
+        - "mesh.enabled=false"
         - "resources.limits.cpu=1000m"
         - "resources.limits.memory=1Gi"
         - "resources.requests.cpu=200m"

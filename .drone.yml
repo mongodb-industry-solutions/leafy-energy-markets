@@ -62,6 +62,7 @@ steps:
         - "ingress.enabled=true"
         - "ingress.hosts[0]=leafy-energy-markets-backend.industrysolutions.staging.corp.mongodb.com"
         - "mesh.enabled=true"
+        - "service.port=8080"
         - "resources.limits.cpu=1000m"
         - "resources.limits.memory=1Gi"
         - "resources.requests.cpu=200m"

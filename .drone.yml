@@ -39,6 +39,7 @@ steps:
       context: frontend
       build_args:
         - NEXT_PUBLIC_API_URL=/api
+        - INTERNAL_API_URL=http://leafy-energy-markets-backend-web-app
       access_key:
         from_secret: ecr_access_key
       secret_key:
@@ -142,6 +143,7 @@ steps:
       context: frontend
       build_args:
         - NEXT_PUBLIC_API_URL=/api
+        - INTERNAL_API_URL=http://leafy-energy-markets-backend-web-app
       access_key:
         from_secret: ecr_access_key
       secret_key:

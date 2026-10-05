@@ -697,6 +697,7 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
             messages = [HumanMessage(content=req.message)]
             tool_calls_used: list[str] = []
             full_answer = ""
+            reasoning_answer = ""
             tools_ever_started = False
 
             # Run astream_events in a background task and drain via a queue.
@@ -766,6 +767,7 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                             content = getattr(chunk, "content", "")
                             if isinstance(content, str) and content:
                                 if not tools_ever_started:
+                                    reasoning_answer += content
                                     yield f"data: {json.dumps({'type': 'reasoning', 'text': content})}\n\n"
                                 else:
                                     full_answer += content
@@ -776,12 +778,18 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
                                         text = part.get("text", "")
                                         if text:
                                             if not tools_ever_started:
+                                                reasoning_answer += text
                                                 yield f"data: {json.dumps({'type': 'reasoning', 'text': text})}\n\n"
                                             else:
                                                 full_answer += text
                                                 yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
 
                 if not error_yielded:
+                    # If no tools were called, the LLM's entire output was emitted as
+                    # 'reasoning'. Re-emit it as 'token' so the frontend renders it.
+                    if not full_answer and reasoning_answer:
+                        full_answer = reasoning_answer
+                        yield f"data: {json.dumps({'type': 'token', 'text': reasoning_answer})}\n\n"
                     yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'tool_calls': tool_calls_used})}\n\n"
 
                     if full_answer and req.message:

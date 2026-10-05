@@ -39,6 +39,7 @@ steps:
       context: frontend
       build_args:
         - NEXT_PUBLIC_API_URL=/api
+        - INTERNAL_API_URL=http://leafy-energy-markets-backend-web-app
       access_key:
         from_secret: ecr_access_key
       secret_key:
@@ -55,6 +56,9 @@ steps:
       add_repos: [mongodb=https://10gen.github.io/helm-charts]
       namespace: industrysolutions
       release: leafy-energy-markets-backend
+      force_upgrade: true
+      cleanup_on_fail: true
+      reuse_values: false
       values:
         - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
         - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend"
@@ -142,6 +146,7 @@ steps:
       context: frontend
       build_args:
         - NEXT_PUBLIC_API_URL=/api
+        - INTERNAL_API_URL=http://leafy-energy-markets-backend-web-app
       access_key:
         from_secret: ecr_access_key
       secret_key:

@@ -12,6 +12,10 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL=http://backend:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
+# Internal backend URL for SSE rewrite proxy (baked into routes-manifest at build time)
+ARG INTERNAL_API_URL=http://backend:8000
+ENV INTERNAL_API_URL=${INTERNAL_API_URL}
+
 # Build for production (rewrites are baked into the build)
 RUN npm run build
 

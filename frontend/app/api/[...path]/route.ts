@@ -41,14 +41,47 @@ async function proxy(req: NextRequest): Promise<Response> {
       resHeaders.set(key, value);
     }
   });
-  // Ensure SSE responses are never buffered by Next.js or nginx
-  if ((resHeaders.get('content-type') ?? '').includes('text/event-stream')) {
+
+  const isSSE = (resHeaders.get('content-type') ?? '').includes('text/event-stream');
+
+  if (isSSE) {
+    // SSE: pipe through an explicit ReadableStream so each chunk is flushed
+    // immediately to the browser. Passing upstreamRes.body directly can cause
+    // buffering in some Node.js/Next.js environments (especially over HTTP/2).
+    resHeaders.set('Content-Type', 'text/event-stream');
     resHeaders.set('Cache-Control', 'no-cache, no-transform');
     resHeaders.set('X-Accel-Buffering', 'no');
+
+    const upstream = upstreamRes.body;
+    const stream = new ReadableStream({
+      async start(controller) {
+        if (!upstream) { controller.close(); return; }
+        const reader = upstream.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+        } catch {
+          // upstream closed or errored — close our stream
+        } finally {
+          controller.close();
+          reader.releaseLock();
+        }
+      },
+      cancel() {
+        upstreamRes.body?.cancel();
+      },
+    });
+
+    return new Response(stream, {
+      status: upstreamRes.status,
+      headers: resHeaders,
+    });
   }
 
-  // Use native Response (not NextResponse) to avoid Next.js response buffering
-  // on streaming bodies — critical for SSE event-by-event delivery.
+  // Non-SSE: pass body through directly
   return new Response(upstreamRes.body, {
     status: upstreamRes.status,
     statusText: upstreamRes.statusText,

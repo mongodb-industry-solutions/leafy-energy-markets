@@ -58,13 +58,13 @@ steps:
       release: leafy-energy-markets-backend
       force_upgrade: true
       cleanup_on_fail: true
+      reuse_values: false
       values:
         - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
         - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/leafy-energy-markets-backend"
         - "ingress.enabled=true"
         - "ingress.hosts[0]=leafy-energy-markets-backend.industrysolutions.staging.corp.mongodb.com"
         - "mesh.enabled=true"
-        - "service.port=8080"
         - "resources.limits.cpu=1000m"
         - "resources.limits.memory=1Gi"
         - "resources.requests.cpu=200m"

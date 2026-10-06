@@ -48,20 +48,14 @@ export const useTradingEvents = () => useContext(TradingEventsContext);
 function TradingEventsProvider({ children }: { children: React.ReactNode }) {
   const [events, setEvents] = useState<TradingEvent[]>([]);
   const [connected, setConnected] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const esRef = useRef<EventSource | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disposedRef = useRef(false);
-  // Resolved once on mount: the backend's external base URL (e.g.
-  // https://backend.prod.corp.mongodb.com) so the browser connects directly,
-  // bypassing the Istio/Envoy sidecar that buffers SSE responses.
-  // Empty string = local dev fallback (no Istio, proxy works fine).
   const streamBaseRef = useRef<string | null>(null);
-  // Per-browser session ID — populated from localStorage on first effect run.
   const sessionIdRef = useRef<string>('default');
 
   useEffect(() => {
     disposedRef.current = false;
-    // Read (or create) the session ID from localStorage on client mount.
     const stored = localStorage.getItem('leafy_session_id');
     if (stored) {
       sessionIdRef.current = stored;
@@ -85,51 +79,39 @@ function TradingEventsProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      abortRef.current = new AbortController();
+      const url = `${streamBaseRef.current}/api/trading/events/stream?session_id=${sessionIdRef.current}`;
 
-      try {
-        const url = `${streamBaseRef.current}/api/trading/events/stream?session_id=${sessionIdRef.current}`;
-        const res = await fetch(url, {
-          signal: abortRef.current.signal,
-        });
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-        setConnected(true);
+      // Use EventSource (native SSE) instead of fetch(). EventSource uses
+      // HTTP/1.1 which avoids Envoy/Istio HTTP/2 response buffering that
+      // causes fetch()-based SSE to hang indefinitely.
+      const es = new EventSource(url);
+      esRef.current = es;
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+      es.onopen = () => setConnected(true);
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const doc = JSON.parse(line.slice(6));
-              if (doc.type === 'ping' || doc.type === 'error') continue;
-              const event: TradingEvent = {
-                streamId: doc.streamId ?? 'UNKNOWN',
-                streamType: doc.streamType ?? 'Unknown',
-                eventType: doc.eventType,
-                timestamp: doc.timestamp,
-                payload: doc.payload ?? {},
-                metadata: doc.metadata,
-              };
-              setEvents(prev => [event, ...prev].slice(0, 500));
-            } catch { /* malformed */ }
-          }
+      es.onmessage = (evt) => {
+        try {
+          const doc = JSON.parse(evt.data);
+          if (doc.type === 'ping' || doc.type === 'error') return;
+          const event: TradingEvent = {
+            streamId: doc.streamId ?? 'UNKNOWN',
+            streamType: doc.streamType ?? 'Unknown',
+            eventType: doc.eventType,
+            timestamp: doc.timestamp,
+            payload: doc.payload ?? {},
+            metadata: doc.metadata,
+          };
+          setEvents(prev => [event, ...prev].slice(0, 500));
+        } catch { /* malformed */ }
+      };
+
+      es.onerror = () => {
+        es.close();
+        setConnected(false);
+        if (!disposedRef.current) {
+          reconnectRef.current = setTimeout(connect, 2000);
         }
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'AbortError') return;
-      }
-
-      setConnected(false);
-      if (!disposedRef.current) {
-        reconnectRef.current = setTimeout(connect, 2000);
-      }
+      };
     };
 
     connect();
@@ -137,7 +119,7 @@ function TradingEventsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       disposedRef.current = true;
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
-      abortRef.current?.abort();
+      esRef.current?.close();
     };
   }, []);
 

@@ -557,6 +557,10 @@ When you do need multiple tools, call them ALL simultaneously.
 ## RESPONSE FORMAT
 Use clean markdown only — no JSON markers, no embedded code blocks.
 
+### TABLE FORMATTING (critical)
+Every table row MUST be on its own line. Never put multiple rows on one line.
+Keep tables to 5 columns max. Use short cell values (under 30 chars).
+
 ### Market Assessment
 2-3 sentences. State key prices (EUR/MWh) and market direction inline.
 
@@ -605,22 +609,17 @@ async def advisor_chat(req: AdvisorRequest, client=Depends(get_db)):
 
     try:
         async with AsyncExitStack() as stack:
-            # Run MCP init and checkpointer init concurrently
-            mcp_task = asyncio.create_task(_enter_mcp_client(stack))
             try:
                 checkpointer = _get_checkpointer(client)
             except Exception as e:
                 logger.warning("Checkpointer unavailable: %s — running without memory", e)
                 checkpointer = None
-            mcp_tools = await mcp_task
 
-            agent, tools = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
+            agent, tools = _build_agent(coll, req.portfolio, req.generators, mcp_tools=None, checkpointer=checkpointer)
 
             from langchain_core.messages import HumanMessage
 
-            # With checkpointer + thread_id, only send the new message.
-            # The checkpointer automatically restores previous conversation state.
-            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 4}
+            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 3}
             messages = [HumanMessage(content=req.message)]
 
             result = await agent.ainvoke({"messages": messages}, config)
@@ -675,17 +674,16 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
         yield f"data: {json.dumps({'type': 'thinking'})}\n\n"
 
         async with AsyncExitStack() as stack:
-            # Run MCP init and checkpointer init concurrently to cut setup latency
-            mcp_task = asyncio.create_task(_enter_mcp_client(stack))
+            # Checkpointer init (MCP skipped — built-in tools cover the same
+            # functionality and MCP npx spawn adds 1-5s latency per request)
             try:
                 checkpointer = _get_checkpointer(client)
             except Exception as e:
                 logger.warning("Checkpointer unavailable: %s", e)
                 checkpointer = None
-            mcp_tools = await mcp_task
 
             try:
-                agent, _ = _build_agent(coll, req.portfolio, req.generators, mcp_tools, checkpointer=checkpointer)
+                agent, _ = _build_agent(coll, req.portfolio, req.generators, mcp_tools=None, checkpointer=checkpointer)
             except Exception as build_exc:
                 logger.exception("Failed to build advisor agent")
                 yield f"data: {json.dumps({'type': 'error', 'message': f'Agent setup failed: {build_exc}'})}\n\n"
@@ -693,7 +691,7 @@ async def advisor_chat_stream(req: AdvisorRequest, client=Depends(get_db)):
 
             from langchain_core.messages import HumanMessage
 
-            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 4}
+            config = {"configurable": {"thread_id": session_id}, "recursion_limit": 3}
             messages = [HumanMessage(content=req.message)]
             tool_calls_used: list[str] = []
             full_answer = ""

@@ -295,7 +295,7 @@ pygments==2.20.0
     #   rich
 pyjwt==2.15.0
     # via mcp
-pymongo==4.15.5
+pymongo==4.18.3
     # via
     #   leafy-energy-markets-backend (backend/pyproject.toml)
     #   langchain-mongodb

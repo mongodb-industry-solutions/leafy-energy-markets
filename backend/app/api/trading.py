@@ -1169,9 +1169,12 @@ def _watch_loop(
             if resume_token is not None:
                 watch_kwargs["resume_after"] = resume_token
             with coll.watch(pipeline, **watch_kwargs) as cursor:
-                for change in cursor:
-                    if stop_event.is_set():
-                        break
+                # try_next() returns None on an empty batch (every max_await_time_ms), so the
+                # stop flag is checked even when idle; `for change in cursor` would block forever.
+                while not stop_event.is_set():
+                    change = cursor.try_next()
+                    if change is None:
+                        continue
                     resume_token = change.get("_id")
                     doc = change.get("fullDocument")
                     if doc:
